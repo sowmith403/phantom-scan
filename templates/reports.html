@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PhantomScan — Security Reports</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+/* ── SUMMARY STRIP ── */
+.summary-strip {
+  display:grid; grid-template-columns:repeat(5,1fr);
+  gap:12px; margin-bottom:24px;
+}
+.sum-card {
+  background:var(--panel); border:1px solid var(--border);
+  border-radius:8px; padding:16px 18px; position:relative; overflow:hidden;
+}
+.sum-card::before { content:''; position:absolute; top:0;left:0;right:0; height:2px; }
+.sum-card.total::before    { background:var(--accent); }
+.sum-card.low::before      { background:var(--green); }
+.sum-card.medium::before   { background:var(--yellow); }
+.sum-card.high::before     { background:var(--orange); }
+.sum-card.critical::before { background:var(--red); }
+.sum-label { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.1em; margin-bottom:6px; }
+.sum-value { font-size:26px; font-weight:700; font-family:var(--font-mono); line-height:1; }
+.sum-card.total    .sum-value { color:var(--accent); }
+.sum-card.low      .sum-value { color:var(--green); }
+.sum-card.medium   .sum-value { color:var(--yellow); }
+.sum-card.high     .sum-value { color:var(--orange); }
+.sum-card.critical .sum-value { color:var(--red); }
+
+/* ── FILTER BAR ── */
+.filter-bar {
+  display:flex; gap:10px; align-items:center;
+  margin-bottom:20px; flex-wrap:wrap;
+}
+.filter-bar input  { max-width:240px; }
+.filter-bar select { max-width:160px; }
+.rec-count { margin-left:auto; font-size:11px; color:var(--muted); }
+
+/* ── REPORT CARDS ── */
+.report-cards { display:flex; flex-direction:column; gap:14px; }
+
+.report-card {
+  background:var(--panel); border:1px solid var(--border);
+  border-radius:8px; overflow:hidden;
+  animation:fadeIn 0.3s ease;
+}
+.report-card-header {
+  display:flex; align-items:center; gap:14px;
+  padding:14px 18px; border-bottom:1px solid var(--border);
+  cursor:pointer; user-select:none;
+}
+.report-card-header:hover { background:rgba(0,200,255,0.03); }
+.rc-id { font-family:var(--font-mono); font-size:11px; color:var(--muted); min-width:36px; }
+.rc-target { flex:1; font-family:var(--font-mono); font-size:13px; color:var(--text); font-weight:600; }
+.rc-time { font-size:11px; color:var(--muted); white-space:nowrap; }
+.rc-actions { display:flex; gap:8px; margin-left:8px; }
+.chevron { color:var(--muted); font-size:12px; transition:transform 0.2s; }
+.chevron.open { transform:rotate(90deg); }
+
+.report-card-body {
+  display:none; padding:20px 18px;
+}
+.report-card-body.open { display:block; }
+
+.report-detail-grid {
+  display:grid; grid-template-columns:1fr 1fr 1fr;
+  gap:16px; margin-top:16px;
+}
+.rd-section h4 {
+  font-size:10px; text-transform:uppercase; letter-spacing:0.08em;
+  color:var(--muted); margin-bottom:8px;
+}
+.rd-section ul { list-style:none; }
+.rd-section ul li {
+  font-size:11px; font-family:var(--font-mono); color:var(--text);
+  padding:4px 0; border-bottom:1px solid rgba(26,47,80,0.4);
+  display:flex; align-items:center; gap:6px;
+}
+.rd-section ul li:last-child { border:none; }
+.li-none { color:var(--muted) !important; font-style:italic; }
+
+/* Risk meter */
+.risk-meter-wrap { display:flex; align-items:center; gap:12px; }
+.risk-meter-bar-track { flex:1; height:6px; background:var(--border); border-radius:3px; overflow:hidden; }
+.risk-meter-bar-fill  { height:100%; border-radius:3px; transition:width 0.6s ease; }
+.risk-score-num { font-family:var(--font-mono); font-size:13px; font-weight:700; min-width:52px; text-align:right; }
+
+/* Recs */
+.rec-list { margin-top:14px; }
+.rec-list h4 { font-size:10px; text-transform:uppercase; letter-spacing:0.08em; color:var(--muted); margin-bottom:10px; }
+.rec-item {
+  display:flex; align-items:flex-start; gap:10px;
+  font-size:12px; color:var(--text); padding:6px 0;
+  border-bottom:1px solid rgba(26,47,80,0.3);
+}
+.rec-item:last-child { border:none; }
+.rec-num { font-family:var(--font-mono); font-size:10px; color:var(--accent); min-width:20px; margin-top:1px; }
+
+/* Chart panel */
+.chart-row { display:grid; grid-template-columns:1fr 260px; gap:16px; margin-bottom:20px; }
+.donut-wrap { position:relative; height:180px; display:flex; align-items:center; justify-content:center; }
+.donut-label {
+  position:absolute; text-align:center;
+  font-family:var(--font-mono); font-size:18px; font-weight:700; color:var(--text);
+  pointer-events:none;
+}
+.donut-label span { display:block; font-size:10px; color:var(--muted); font-weight:400; margin-top:2px; }
+.legend-list { display:flex; flex-direction:column; gap:8px; padding:12px 0; }
+.legend-item { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text); }
+.legend-dot  { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+.legend-val  { margin-left:auto; font-family:var(--font-mono); color:var(--muted); }
+
+.no-data { text-align:center; color:var(--muted); padding:48px 0; font-size:14px; }
+.no-data a { color:var(--accent); }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="wordmark">⬡ PhantomScan</div>
+    <div class="tagline">Security Operations Center</div>
+  </div>
+  <nav class="nav">
+    <div class="nav-section">Monitoring</div>
+    <a href="/dashboard"><i class="icon">▦</i> Dashboard</a>
+    <a href="/"><i class="icon">◎</i> Scan Center</a>
+    <a href="/history"><i class="icon">≡</i> Scan History</a>
+    <div class="nav-section">Intelligence</div>
+    <a href="/threat-intel"><i class="icon">⚑</i> Threat Intel</a>
+    <a href="/reports" class="active"><i class="icon">◫</i> Reports</a>
+    <a href="/export"><i class="icon">↓</i> Export CSV</a>
+    <div class="nav-section">System</div>
+    <a href="/settings"><i class="icon">⚙</i> Settings</a>
+    <a href="/logout"><i class="icon">⏻</i> Logout</a>
+  </nav>
+  <div class="sidebar-footer"><span class="status-dot"></span> SOC ACTIVE</div>
+</aside>
+
+<!-- MAIN -->
+<div class="main">
+  <div class="topbar">
+    <div class="topbar-left">
+      <span class="page-title">Security Reports</span>
+      <span class="soc-badge"><span class="status-dot"></span>OPERATIONAL</span>
+    </div>
+    <div class="topbar-right">
+      <div id="clock"></div>
+      <a href="/export" class="btn btn-ghost">↓ Export CSV</a>
+      <a href="/" class="btn btn-accent">◎ New Scan</a>
+    </div>
+  </div>
+
+  <div class="content">
+
+    {% if not scans %}
+    <!-- NO DATA -->
+    <div class="no-data">
+      <div style="font-size:40px;margin-bottom:16px">◫</div>
+      <p>No scan reports yet.</p>
+      <p style="margin-top:8px"><a href="/">Run your first scan</a> to generate a report.</p>
+    </div>
+
+    {% else %}
+
+    <!-- SUMMARY CARDS -->
+    <div class="summary-strip">
+      <div class="sum-card total">
+        <div class="sum-label">Total Scans</div>
+        <div class="sum-value">{{ stats.total }}</div>
+      </div>
+      <div class="sum-card low">
+        <div class="sum-label">Low Risk</div>
+        <div class="sum-value">{{ stats.low }}</div>
+      </div>
+      <div class="sum-card medium">
+        <div class="sum-label">Medium Risk</div>
+        <div class="sum-value">{{ stats.medium }}</div>
+      </div>
+      <div class="sum-card high">
+        <div class="sum-label">High Risk</div>
+        <div class="sum-value">{{ stats.high }}</div>
+      </div>
+      <div class="sum-card critical">
+        <div class="sum-label">Critical</div>
+        <div class="sum-value">{{ stats.critical }}</div>
+      </div>
+    </div>
+
+    <!-- CHART ROW -->
+    <div class="chart-row">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">Risk Distribution Overview</div>
+        </div>
+        <div class="panel-body">
+          <div class="donut-wrap">
+            <canvas id="donutChart" width="180" height="180" style="max-width:180px;max-height:180px"></canvas>
+            <div class="donut-label" id="donutCenter">
+              {{ stats.total }}<span>total</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-header"><div class="panel-title">Breakdown</div></div>
+        <div class="panel-body">
+          <div class="legend-list">
+            <div class="legend-item"><span class="legend-dot" style="background:#00e676"></span>Low Risk<span class="legend-val">{{ stats.low }}</span></div>
+            <div class="legend-item"><span class="legend-dot" style="background:#ffd600"></span>Medium Risk<span class="legend-val">{{ stats.medium }}</span></div>
+            <div class="legend-item"><span class="legend-dot" style="background:#ff6d00"></span>High Risk<span class="legend-val">{{ stats.high }}</span></div>
+            <div class="legend-item"><span class="legend-dot" style="background:#ff1744"></span>Critical<span class="legend-val">{{ stats.critical }}</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- FILTER -->
+    <div class="filter-bar">
+      <input type="text" class="form-input" id="searchInput" placeholder="Search target…" oninput="filterCards()">
+      <select class="form-input form-select" id="riskFilter" onchange="filterCards()">
+        <option value="">All risk levels</option>
+        <option value="low">Low</option>
+        <option value="medium">Medium</option>
+        <option value="high">High</option>
+        <option value="critical">Critical</option>
+      </select>
+      <span class="rec-count" id="recCount">{{ scans|length }} report{{ 's' if scans|length != 1 else '' }}</span>
+    </div>
+
+    <!-- REPORT CARDS -->
+    <div class="report-cards" id="reportCards">
+      {% for s in scans %}
+      <div class="report-card" data-target="{{ s.target|lower }}" data-risk="{{ s.risk_class }}">
+
+        <div class="report-card-header" onclick="toggleCard({{ s.id }})">
+          <span class="rc-id">#{{ s.id }}</span>
+          <span class="rc-target">{{ s.target }}</span>
+          <span class="risk-pill risk-{{ s.risk_class }}">{{ s.risk_label }} {{ s.score }}/100</span>
+          <span class="rc-time">{{ s.timestamp }}</span>
+          <div class="rc-actions" onclick="event.stopPropagation()">
+            <a href="/report/{{ s.id }}" class="btn btn-ghost" style="padding:4px 10px;font-size:11px">↓ PDF</a>
+          </div>
+          <span class="chevron" id="chev-{{ s.id }}">▶</span>
+        </div>
+
+        <div class="report-card-body" id="body-{{ s.id }}">
+
+          <!-- Risk meter -->
+          <div>
+            <div class="sum-label" style="margin-bottom:8px">Risk Score</div>
+            <div class="risk-meter-wrap">
+              <div class="risk-meter-bar-track">
+                <div class="risk-meter-bar-fill"
+                  style="width:{{ s.score }}%;
+                  background:{% if s.risk_class=='low' %}var(--green){% elif s.risk_class=='medium' %}var(--yellow){% elif s.risk_class=='high' %}var(--orange){% else %}var(--red){% endif %}">
+                </div>
+              </div>
+              <span class="risk-score-num" style="color:{% if s.risk_class=='low' %}var(--green){% elif s.risk_class=='medium' %}var(--yellow){% elif s.risk_class=='high' %}var(--orange){% else %}var(--red){% endif %}">
+                {{ s.score }}/100
+              </span>
+            </div>
+          </div>
+
+          <!-- Findings grid -->
+          <div class="report-detail-grid">
+            <div class="rd-section">
+              <h4>Open Ports ({{ s.ports|length }})</h4>
+              <ul>
+                {% if s.ports %}
+                  {% for p in s.ports %}
+                    <li>🔌 Port {{ p }}</li>
+                  {% endfor %}
+                {% else %}
+                  <li class="li-none">No open ports detected</li>
+                {% endif %}
+              </ul>
+            </div>
+            <div class="rd-section">
+              <h4>SSL / TLS Findings</h4>
+              <ul>
+                {% if s.ssl %}
+                  {% for item in s.ssl %}
+                    {% if item %}
+                      <li>
+                        {% if 'WARNING' in item or 'Error' in item or 'EXPIRED' in item %}⚠{% else %}✓{% endif %}
+                        {{ item }}
+                      </li>
+                    {% endif %}
+                  {% endfor %}
+                {% else %}
+                  <li class="li-none">No SSL issues</li>
+                {% endif %}
+              </ul>
+            </div>
+            <div class="rd-section">
+              <h4>Header Findings ({{ s.headers|length }})</h4>
+              <ul>
+                {% if s.headers %}
+                  {% for item in s.headers %}
+                    {% if item %}
+                      <li>⚠ {{ item }}</li>
+                    {% endif %}
+                  {% endfor %}
+                {% else %}
+                  <li class="li-none">All headers present ✓</li>
+                {% endif %}
+              </ul>
+            </div>
+          </div>
+
+          <!-- Recommendations -->
+          <div class="rec-list">
+            <h4>Recommendations</h4>
+            {% set recs = [] %}
+            {% if 'Missing HSTS' in s.headers|join %}
+              {% set _ = recs.append("Enable Strict-Transport-Security (HSTS) to enforce HTTPS.") %}
+            {% endif %}
+            {% if 'Missing Content-Security-Policy' in s.headers|join %}
+              {% set _ = recs.append("Configure a Content-Security-Policy (CSP) header.") %}
+            {% endif %}
+            {% if 'Missing X-Frame-Options' in s.headers|join %}
+              {% set _ = recs.append("Add X-Frame-Options to prevent clickjacking attacks.") %}
+            {% endif %}
+            {% if 'Missing X-Content-Type-Options' in s.headers|join %}
+              {% set _ = recs.append("Set X-Content-Type-Options: nosniff to prevent MIME sniffing.") %}
+            {% endif %}
+            {% if 'Missing Referrer-Policy' in s.headers|join %}
+              {% set _ = recs.append("Add a Referrer-Policy header to control referrer data leakage.") %}
+            {% endif %}
+            {% if 21 in s.ports %}
+              {% set _ = recs.append("Disable FTP (port 21) — use SFTP or SCP instead.") %}
+            {% endif %}
+            {% if 23 in s.ports %}
+              {% set _ = recs.append("Disable Telnet (port 23) — use SSH instead.") %}
+            {% endif %}
+            {% if 3389 in s.ports %}
+              {% set _ = recs.append("Restrict RDP (port 3389) to VPN/trusted IPs only.") %}
+            {% endif %}
+            {% if 445 in s.ports %}
+              {% set _ = recs.append("Restrict SMB (port 445) — common ransomware entry point.") %}
+            {% endif %}
+            {% if 'EXPIRED' in s.ssl|join or 'Error' in s.ssl|join %}
+              {% set _ = recs.append("Renew or fix the SSL/TLS certificate immediately.") %}
+            {% endif %}
+            {% set _ = recs.append("Perform regular vulnerability scans to catch new exposures.") %}
+
+            {% for rec in recs %}
+              <div class="rec-item">
+                <span class="rec-num">{{ loop.index }}.</span>
+                <span>{{ rec }}</span>
+              </div>
+            {% endfor %}
+          </div>
+
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    {% endif %}
+  </div><!-- /content -->
+
+  <div class="footer">
+    <span>PhantomScan v2.0 — Security Reports</span>
+    <span>{{ scans|length }} report{{ 's' if scans|length != 1 else '' }} generated</span>
+  </div>
+</div>
+</div>
+
+<script>
+function updateClock(){
+  document.getElementById("clock").textContent =
+    new Date().toLocaleString("en-GB",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit",second:"2-digit"});
+}
+setInterval(updateClock,1000); updateClock();
+
+/* ── Donut chart ── */
+{% if scans %}
+(function(){
+  const ctx = document.getElementById("donutChart");
+  if(!ctx) return;
+  const low      = {{ stats.low }};
+  const medium   = {{ stats.medium }};
+  const high     = {{ stats.high }};
+  const critical = {{ stats.critical }};
+  const total    = low + medium + high + critical;
+
+  new Chart(ctx, {
+    type:"doughnut",
+    data:{
+      labels:["Low","Medium","High","Critical"],
+      datasets:[{
+        data: total ? [low,medium,high,critical] : [1,0,0,0],
+        backgroundColor:["#00e676","#ffd600","#ff6d00","#ff1744"],
+        borderColor:"#0f1e35",
+        borderWidth:3,
+        hoverOffset:6
+      }]
+    },
+    options:{
+      responsive:false,
+      cutout:"72%",
+      plugins:{
+        legend:{display:false},
+        tooltip:{
+          backgroundColor:"#0b1628", borderColor:"#1a2f50", borderWidth:1,
+          titleColor:"#cdd9f0", bodyColor:"#4a6080", padding:10
+        }
+      }
+    }
+  });
+})();
+{% endif %}
+
+/* ── Toggle card ── */
+function toggleCard(id){
+  const body = document.getElementById("body-"+id);
+  const chev = document.getElementById("chev-"+id);
+  const open = body.classList.toggle("open");
+  chev.classList.toggle("open", open);
+  chev.textContent = open ? "▼" : "▶";
+}
+
+/* ── Filter ── */
+function filterCards(){
+  const search = document.getElementById("searchInput").value.toLowerCase();
+  const risk   = document.getElementById("riskFilter").value;
+  const cards  = document.querySelectorAll(".report-card");
+  let visible  = 0;
+  cards.forEach(card => {
+    const matchSearch = !search || card.dataset.target.includes(search);
+    const matchRisk   = !risk   || card.dataset.risk === risk;
+    card.style.display = (matchSearch && matchRisk) ? "" : "none";
+    if(matchSearch && matchRisk) visible++;
+  });
+  const rc = document.getElementById("recCount");
+  if(rc) rc.textContent = `${visible} report${visible!==1?"s":""}`;
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PhantomScan — SOC Dashboard</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+/* ── DASHBOARD-ONLY STYLES ── */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.chart-wrap { position: relative; height: 220px; }
+
+/* Radar */
+.radar-scope {
+  width: 130px; height: 130px; border-radius: 50%;
+  border: 1px solid rgba(0,200,255,0.3);
+  position: relative;
+  background: radial-gradient(circle, rgba(0,200,255,0.04) 0%, transparent 70%);
+  box-shadow: 0 0 24px rgba(0,200,255,0.08);
+  margin: 0 auto;
+}
+.radar-scope::before, .radar-scope::after {
+  content:''; position:absolute; border-radius:50%;
+  border:1px solid rgba(0,200,255,0.15);
+  top:50%; left:50%; transform:translate(-50%,-50%);
+}
+.radar-scope::before { width:66%; height:66%; }
+.radar-scope::after  { width:33%; height:33%; }
+.radar-line-h { position:absolute; background:rgba(0,200,255,0.12); top:50%; left:0; right:0; height:1px; }
+.radar-line-v { position:absolute; background:rgba(0,200,255,0.12); left:50%; top:0; bottom:0; width:1px; }
+.radar-sweep {
+  position:absolute; width:50%; height:50%; top:0; left:50%;
+  transform-origin:bottom left;
+  background:conic-gradient(from 0deg, transparent 80%, rgba(0,200,255,0.4));
+  animation:sweep 3s linear infinite;
+  border-radius:0 100% 0 0;
+}
+@keyframes sweep { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+.radar-blip {
+  position:absolute; width:5px; height:5px; border-radius:50%;
+  background:var(--accent); box-shadow:0 0 6px var(--accent);
+  animation:blip 3s ease-in-out infinite;
+}
+@keyframes blip { 0%,100%{opacity:0} 50%{opacity:1} }
+.radar-label { font-size:10px; color:var(--muted); text-align:center; margin-top:10px; letter-spacing:0.06em; }
+
+/* Activity log */
+.log-scroll { max-height:175px; overflow-y:auto; padding:10px 14px; font-family:var(--font-mono); font-size:11px; }
+.log-scroll::-webkit-scrollbar { width:3px; }
+.log-scroll::-webkit-scrollbar-thumb { background:var(--border); }
+.log-entry { padding:4px 0; border-bottom:1px solid rgba(26,47,80,0.4); color:var(--muted); display:flex; gap:8px; }
+.log-entry:last-child { border-bottom:none; }
+.log-time { color:var(--accent); flex-shrink:0; }
+
+/* Threat monitor */
+.threat-item {
+  display:flex; align-items:center; gap:12px;
+  padding:10px 0; border-bottom:1px solid var(--border);
+}
+.threat-item:last-child { border-bottom:none; }
+.threat-target { flex:1; font-family:var(--font-mono); font-size:12px; }
+.threat-score  { font-family:var(--font-mono); font-size:12px; color:var(--muted); }
+.threat-time   { font-size:11px; color:var(--muted); white-space:nowrap; }
+
+/* Table action buttons */
+.act-btn {
+  padding:3px 9px; border-radius:3px; font-size:10px; font-weight:600;
+  border:1px solid; transition:opacity 0.15s; display:inline-block; cursor:pointer; font-family:inherit;
+}
+.act-btn:hover { opacity:0.75; }
+.act-pdf    { color:var(--accent);  border-color:rgba(0,200,255,0.3);  background:rgba(0,200,255,0.06); }
+.act-view   { color:var(--green);   border-color:rgba(0,230,118,0.3);  background:rgba(0,230,118,0.06); }
+.act-delete { color:var(--red);     border-color:rgba(255,23,68,0.3);  background:rgba(255,23,68,0.06); }
+
+table { width:100%; border-collapse:collapse; font-size:12px; }
+thead th {
+  padding:10px 14px; text-align:left; font-size:10px; font-weight:600;
+  text-transform:uppercase; letter-spacing:0.08em; color:var(--muted);
+  background:var(--surface); border-bottom:1px solid var(--border); white-space:nowrap;
+}
+tbody tr { border-bottom:1px solid rgba(26,47,80,0.5); transition:background 0.1s; }
+tbody tr:hover { background:rgba(0,200,255,0.03); }
+tbody td { padding:10px 14px; vertical-align:middle; }
+.td-mono { font-family:var(--font-mono); font-size:11px; }
+.td-trunc { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:150px; }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="wordmark">⬡ PhantomScan</div>
+    <div class="tagline">Security Operations Center</div>
+  </div>
+  <nav class="nav">
+    <div class="nav-section">Monitoring</div>
+    <a href="/dashboard" class="active"><i class="icon">▦</i> Dashboard</a>
+    <a href="/"><i class="icon">◎</i> Scan Center</a>
+    <a href="/history"><i class="icon">≡</i> Scan History</a>
+    <div class="nav-section">Intelligence</div>
+    <a href="/threat-intel"><i class="icon">⚑</i> Threat Intel</a>
+    <a href="/reports"><i class="icon">◫</i> Reports</a>
+    <a href="/export"><i class="icon">↓</i> Export CSV</a>
+    <div class="nav-section">System</div>
+    <a href="/settings"><i class="icon">⚙</i> Settings</a>
+    <a href="/logout"><i class="icon">⏻</i> Logout</a>
+  </nav>
+  <div class="sidebar-footer"><span class="status-dot"></span> SOC ACTIVE</div>
+</aside>
+
+<!-- MAIN -->
+<div class="main">
+  <div class="topbar">
+    <div class="topbar-left">
+      <span class="page-title">SOC Dashboard</span>
+      <span class="soc-badge"><span class="status-dot"></span>OPERATIONAL</span>
+    </div>
+    <div class="topbar-right">
+      <div id="clock"></div>
+      <button class="btn btn-ghost" onclick="refreshAll()">↺ Refresh</button>
+      <a href="/export" class="btn btn-accent">↓ Export CSV</a>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- STAT CARDS -->
+    <div class="stat-grid">
+      <div class="stat-card total">
+        <div class="stat-label">Total Scans</div>
+        <div class="stat-value" id="totalScans">—</div>
+      </div>
+      <div class="stat-card low">
+        <div class="stat-label">Low Risk</div>
+        <div class="stat-value" id="lowRisk">—</div>
+      </div>
+      <div class="stat-card medium">
+        <div class="stat-label">Medium Risk</div>
+        <div class="stat-value" id="mediumRisk">—</div>
+      </div>
+      <div class="stat-card high">
+        <div class="stat-label">High Risk</div>
+        <div class="stat-value" id="highRisk">—</div>
+      </div>
+      <div class="stat-card critical">
+        <div class="stat-label">Critical</div>
+        <div class="stat-value" id="criticalRisk">—</div>
+      </div>
+    </div>
+
+    <!-- MAIN GRID -->
+    <div class="dashboard-grid">
+
+      <!-- Chart panel -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title"><span class="dot-live"></span> Risk Trend Analysis</div>
+          <span style="font-size:11px;color:var(--muted)" id="chartMeta"></span>
+        </div>
+        <div class="panel-body">
+          <div class="chart-wrap">
+            <canvas id="riskChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right column: radar + activity -->
+      <div style="display:flex;flex-direction:column;gap:16px;">
+        <div class="panel" style="padding:18px;">
+          <div class="radar-scope">
+            <div class="radar-line-h"></div>
+            <div class="radar-line-v"></div>
+            <div class="radar-sweep"></div>
+            <div class="radar-blip" style="top:28%;left:62%"></div>
+            <div class="radar-blip" style="top:65%;left:34%;animation-delay:1s"></div>
+            <div class="radar-blip" style="top:18%;left:24%;animation-delay:2s"></div>
+          </div>
+          <div class="radar-label">THREAT RADAR — SCANNING</div>
+        </div>
+
+        <div class="panel" style="overflow:hidden;">
+          <div class="panel-header">
+            <div class="panel-title">Live Activity</div>
+          </div>
+          <div class="log-scroll" id="activityLog">
+            <div class="log-entry"><span class="log-time">INIT</span><span>System operational</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- THREAT MONITOR -->
+    <div class="panel" style="margin-bottom:20px;">
+      <div class="panel-header">
+        <div class="panel-title"><span class="dot-live"></span> Live Threat Monitor</div>
+        <span style="font-size:11px;color:var(--muted)">Top 5 elevated-risk targets</span>
+      </div>
+      <div class="panel-body" id="liveThreats">
+        <div class="empty">Loading threat data…</div>
+      </div>
+    </div>
+
+    <!-- SCAN TABLE -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">Security Assessment Logs</div>
+        <span style="font-size:11px;color:var(--muted)" id="tableCount"></span>
+      </div>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th><th>Target</th><th>Ports</th>
+              <th>SSL</th><th>Headers</th>
+              <th>Risk</th><th>Timestamp</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody">
+            <tr><td colspan="8" class="empty">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+
+  <div class="footer">
+    <span>PhantomScan v2.0 — Security Operations Center</span>
+    <span id="lastRefresh"></span>
+  </div>
+</div>
+</div><!-- /layout -->
+
+<script>
+"use strict";
+
+let chart = null;
+
+/* ── Clock ── */
+function updateClock(){
+  document.getElementById("clock").textContent =
+    new Date().toLocaleString("en-GB",{
+      day:"2-digit",month:"short",year:"numeric",
+      hour:"2-digit",minute:"2-digit",second:"2-digit"
+    });
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+/* ── Helpers ── */
+function riskClass(score){
+  if(score <= 25) return "low";
+  if(score <= 50) return "medium";
+  if(score <= 75) return "high";
+  return "critical";
+}
+function riskLabel(score){
+  if(score <= 25) return "LOW";
+  if(score <= 50) return "MED";
+  if(score <= 75) return "HIGH";
+  return "CRIT";
+}
+function shortList(raw){
+  if(!raw || raw === "[]" || raw === "") return "<span style='color:var(--muted)'>None</span>";
+  try {
+    const arr = JSON.parse(raw.replace(/'/g,'"'));
+    if(!arr.length) return "<span style='color:var(--muted)'>None</span>";
+    const preview = arr.slice(0,3).join(", ");
+    return arr.length > 3 ? preview + ` +${arr.length-3}` : preview;
+  } catch {
+    const s = String(raw).replace(/[\[\]']/g,"").trim();
+    if(!s) return "<span style='color:var(--muted)'>None</span>";
+    return s.length > 55 ? s.slice(0,52)+"…" : s;
+  }
+}
+
+/* ── Load stats ── */
+async function loadStats(){
+  try {
+    const res = await fetch("/api/stats");
+    if(!res.ok) return;
+    const s = await res.json();
+    document.getElementById("totalScans").textContent   = s.total    ?? 0;
+    document.getElementById("lowRisk").textContent      = s.low      ?? 0;
+    document.getElementById("mediumRisk").textContent   = s.medium   ?? 0;
+    document.getElementById("highRisk").textContent     = s.high     ?? 0;
+    document.getElementById("criticalRisk").textContent = s.critical ?? 0;
+  } catch(e){ console.error("Stats error:", e); }
+}
+
+/* ── Load scans ── */
+async function loadScans(){
+  try {
+    const res = await fetch("/api/scans");
+    if(!res.ok){ console.error("API error", res.status); return; }
+    const data = await res.json();
+    if(!Array.isArray(data)){ console.error("Unexpected response", data); return; }
+
+    const count = data.length;
+    document.getElementById("tableCount").textContent = `${count} record${count!==1?"s":""}`;
+    document.getElementById("chartMeta").textContent  = `${count} scan${count!==1?"s":""}`;
+
+    /* ── Table ── */
+    if(!count){
+      document.getElementById("tableBody").innerHTML =
+        `<tr><td colspan="8" class="empty">No scans yet — <a href="/" style="color:var(--accent)">run your first scan</a>.</td></tr>`;
+    } else {
+      document.getElementById("tableBody").innerHTML = data.map(s => {
+        const rc = riskClass(s.risk);
+        const rl = riskLabel(s.risk);
+        return `<tr>
+          <td class="td-mono" style="color:var(--muted)">#${s.id}</td>
+          <td class="td-mono td-trunc" title="${s.target}">${s.target}</td>
+          <td class="td-trunc" title="${s.ports}">${shortList(s.ports)}</td>
+          <td class="td-trunc" title="${s.ssl}">${shortList(s.ssl)}</td>
+          <td class="td-trunc" title="${s.headers}">${shortList(s.headers)}</td>
+          <td><span class="risk-pill risk-${rc}">${rl} ${s.risk}</span></td>
+          <td class="td-mono" style="color:var(--muted);white-space:nowrap">${s.time||"—"}</td>
+          <td>
+            <div style="display:flex;gap:5px;flex-wrap:wrap">
+              <a href="/report/${s.id}" class="act-btn act-pdf">PDF</a>
+              <a href="/api/scan/${s.id}" target="_blank" class="act-btn act-view">View</a>
+              <button class="act-btn act-delete" onclick="deleteScan(${s.id},'${s.target}')">Delete</button>
+            </div>
+          </td>
+        </tr>`;
+      }).join("");
+    }
+
+    /* ── Activity log ── */
+    if(count){
+      document.getElementById("activityLog").innerHTML = data.slice(0,15).map(s => {
+        const rc = riskClass(s.risk);
+        const t  = (s.time||"").split(" ")[1] || s.time || "—";
+        return `<div class="log-entry">
+          <span class="log-time">${t}</span>
+          <span>SCAN <strong style="color:var(--text)">${s.target}</strong>
+          → <span class="risk-${rc}" style="font-weight:700">${riskLabel(s.risk)} (${s.risk})</span></span>
+        </div>`;
+      }).join("");
+    }
+
+    /* ── Threat monitor (risk >= 50) ── */
+    const threats = data.filter(s => s.risk >= 50).slice(0,5);
+    document.getElementById("liveThreats").innerHTML = threats.length
+      ? threats.map(s => {
+          const rc = riskClass(s.risk);
+          return `<div class="threat-item">
+            <span class="risk-pill risk-${rc}">${riskLabel(s.risk)}</span>
+            <span class="threat-target">${s.target}</span>
+            <span class="threat-score">Score: ${s.risk}/100</span>
+            <span class="threat-time">${s.time||"—"}</span>
+          </div>`;
+        }).join("")
+      : `<div class="empty">No elevated threats detected in recent scans.</div>`;
+
+    /* ── Chart ── */
+    const sorted = [...data].reverse();
+    drawChart(sorted.map(s=>s.target), sorted.map(s=>s.risk));
+
+  } catch(e){ console.error("Scans error:", e); }
+}
+
+/* ── Chart ── */
+function drawChart(labels, scores){
+  if(chart){ chart.destroy(); chart=null; }
+  const ctx  = document.getElementById("riskChart").getContext("2d");
+  const grad = ctx.createLinearGradient(0,0,0,220);
+  grad.addColorStop(0,"rgba(0,200,255,0.18)");
+  grad.addColorStop(1,"rgba(0,200,255,0)");
+
+  chart = new Chart(ctx, {
+    type:"line",
+    data:{
+      labels,
+      datasets:[{
+        label:"Risk Score",
+        data:scores,
+        borderColor:"#00c8ff",
+        backgroundColor:grad,
+        pointBackgroundColor: scores.map(v=>v>75?"#ff1744":v>50?"#ff6d00":v>25?"#ffd600":"#00e676"),
+        pointRadius:5, pointHoverRadius:7,
+        fill:true, tension:0.4, borderWidth:2
+      }]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{intersect:false, mode:"index"},
+      plugins:{
+        legend:{display:false},
+        tooltip:{
+          backgroundColor:"#0b1628", borderColor:"#1a2f50", borderWidth:1,
+          titleColor:"#cdd9f0", bodyColor:"#4a6080", padding:10,
+          callbacks:{ label: c=>" Risk Score: "+c.parsed.y+"/100" }
+        }
+      },
+      scales:{
+        x:{ ticks:{color:"#4a6080",font:{size:10},maxRotation:30,maxTicksLimit:8}, grid:{color:"rgba(26,47,80,0.5)"} },
+        y:{ min:0,max:100, ticks:{color:"#4a6080",font:{size:10},stepSize:25}, grid:{color:"rgba(26,47,80,0.5)"} }
+      }
+    }
+  });
+}
+
+/* ── Delete ── */
+async function deleteScan(id, target){
+  if(!confirm(`Delete scan of "${target}"?\nThis cannot be undone.`)) return;
+  try {
+    await fetch(`/delete/${id}`, {method:"POST"});
+    refreshAll();
+  } catch(e){ alert("Delete failed. Please try again."); }
+}
+
+/* ── Refresh ── */
+async function refreshAll(){
+  await Promise.all([loadStats(), loadScans()]);
+  document.getElementById("lastRefresh").textContent =
+    "Updated: " + new Date().toLocaleTimeString();
+}
+
+refreshAll();
+setInterval(refreshAll, 15000);
+</script>
+</body>
+</html>

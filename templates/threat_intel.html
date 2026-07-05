@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PhantomScan — Threat Intelligence</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+.ti-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px; }
+
+.ioc-table table { width:100%; border-collapse:collapse; font-size:12px; }
+.ioc-table thead th {
+  padding:9px 14px; text-align:left; font-size:10px; font-weight:600;
+  text-transform:uppercase; letter-spacing:0.08em; color:var(--muted);
+  background:var(--surface); border-bottom:1px solid var(--border);
+}
+.ioc-table tbody tr { border-bottom:1px solid rgba(26,47,80,0.4); transition:background 0.1s; }
+.ioc-table tbody tr:hover { background:rgba(0,200,255,0.03); }
+.ioc-table tbody td { padding:9px 14px; font-family:var(--font-mono); font-size:11px; }
+
+.feed-item {
+  display:flex; align-items:flex-start; gap:12px;
+  padding:11px 0; border-bottom:1px solid rgba(26,47,80,0.4);
+}
+.feed-item:last-child { border-bottom:none; }
+.feed-icon { font-size:16px; flex-shrink:0; margin-top:1px; }
+.feed-content { flex:1; }
+.feed-title { font-size:12px; font-weight:600; color:var(--text); margin-bottom:3px; }
+.feed-desc  { font-size:11px; color:var(--muted); line-height:1.5; }
+.feed-time  { font-size:10px; color:var(--muted); margin-top:4px; font-family:var(--font-mono); }
+
+.severity-badge {
+  padding:2px 7px; border-radius:3px;
+  font-size:10px; font-weight:700; letter-spacing:0.06em; flex-shrink:0;
+}
+.sev-critical { background:rgba(255,23,68,0.15);  color:var(--red);    border:1px solid rgba(255,23,68,0.3); }
+.sev-high     { background:rgba(255,109,0,0.12);  color:var(--orange); border:1px solid rgba(255,109,0,0.3); }
+.sev-medium   { background:rgba(255,214,0,0.10);  color:var(--yellow); border:1px solid rgba(255,214,0,0.25); }
+.sev-low      { background:rgba(0,230,118,0.08);  color:var(--green);  border:1px solid rgba(0,230,118,0.2); }
+
+.port-risk-bar { height:4px; border-radius:2px; margin-top:4px; }
+
+.stat-row { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:20px; }
+.mini-stat { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:14px 16px; }
+.mini-stat .label { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:6px; }
+.mini-stat .value { font-size:22px; font-weight:700; font-family:var(--font-mono); color:var(--accent); }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="wordmark">⬡ PhantomScan</div>
+    <div class="tagline">Security Operations Center</div>
+  </div>
+  <nav class="nav">
+    <div class="nav-section">Monitoring</div>
+    <a href="/dashboard"><i class="icon">▦</i> Dashboard</a>
+    <a href="/"><i class="icon">◎</i> Scan Center</a>
+    <a href="/history"><i class="icon">≡</i> Scan History</a>
+    <div class="nav-section">Intelligence</div>
+    <a href="/threat-intel" class="active"><i class="icon">⚑</i> Threat Intel</a>
+    <a href="/reports"><i class="icon">◫</i> Reports</a>
+    <a href="/export"><i class="icon">↓</i> Export CSV</a>
+    <div class="nav-section">System</div>
+    <a href="/settings"><i class="icon">⚙</i> Settings</a>
+    <a href="/logout"><i class="icon">⏻</i> Logout</a>
+  </nav>
+  <div class="sidebar-footer"><span class="status-dot"></span> SOC ACTIVE</div>
+</aside>
+
+<div class="main">
+  <div class="topbar">
+    <div class="topbar-left">
+      <span class="page-title">Threat Intelligence</span>
+      <span class="soc-badge"><span class="status-dot"></span>LIVE FEED</span>
+    </div>
+    <div class="topbar-right">
+      <div id="clock"></div>
+      <button class="btn btn-ghost" onclick="loadIntel()">↺ Refresh</button>
+      <a href="/" class="btn btn-accent">◎ New Scan</a>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- MINI STATS (populated from /api/stats) -->
+    <div class="stat-row">
+      <div class="mini-stat">
+        <div class="label">Total Targets Scanned</div>
+        <div class="value" id="tiTotal">—</div>
+      </div>
+      <div class="mini-stat">
+        <div class="label">Critical / High Threats</div>
+        <div class="value" style="color:var(--red)" id="tiThreats">—</div>
+      </div>
+      <div class="mini-stat">
+        <div class="label">Avg Risk Score</div>
+        <div class="value" style="color:var(--yellow)" id="tiAvg">—</div>
+      </div>
+    </div>
+
+    <div class="ti-grid">
+
+      <!-- HIGH RISK TARGETS -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title"><span class="dot-live"></span> High-Risk Targets</div>
+          <span style="font-size:11px;color:var(--muted)">Risk score ≥ 50</span>
+        </div>
+        <div class="panel-body ioc-table">
+          <table>
+            <thead>
+              <tr><th>Target</th><th>Risk</th><th>Level</th><th>Last Seen</th></tr>
+            </thead>
+            <tbody id="highRiskTable">
+              <tr><td colspan="4" class="empty">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- VULNERABILITY ADVISORY FEED -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">Vulnerability Advisory Feed</div>
+        </div>
+        <div class="panel-body" style="max-height:320px;overflow-y:auto">
+          <div class="feed-item">
+            <span class="feed-icon">🔴</span>
+            <div class="feed-content">
+              <div class="feed-title">SMB Port 445 — Ransomware Entry Point</div>
+              <div class="feed-desc">Open SMB ports are exploited by ransomware families including WannaCry and NotPetya. Restrict to internal networks only.</div>
+              <div class="feed-time">CVE Advisory · High Severity</div>
+            </div>
+            <span class="severity-badge sev-critical">CRITICAL</span>
+          </div>
+          <div class="feed-item">
+            <span class="feed-icon">🟠</span>
+            <div class="feed-content">
+              <div class="feed-title">RDP Port 3389 — Brute Force Target</div>
+              <div class="feed-desc">Exposed RDP is the #1 initial access vector in ransomware attacks. Require NLA and restrict to VPN access.</div>
+              <div class="feed-time">CISA Alert · High Severity</div>
+            </div>
+            <span class="severity-badge sev-high">HIGH</span>
+          </div>
+          <div class="feed-item">
+            <span class="feed-icon">🟠</span>
+            <div class="feed-content">
+              <div class="feed-title">Missing HSTS — Downgrade Attack Risk</div>
+              <div class="feed-desc">Without HSTS, browsers may connect via HTTP. Attackers can intercept and downgrade connections.</div>
+              <div class="feed-time">OWASP Top 10 · High Severity</div>
+            </div>
+            <span class="severity-badge sev-high">HIGH</span>
+          </div>
+          <div class="feed-item">
+            <span class="feed-icon">🟡</span>
+            <div class="feed-content">
+              <div class="feed-title">Missing CSP — XSS Amplification</div>
+              <div class="feed-desc">Absence of Content-Security-Policy increases the impact of cross-site scripting vulnerabilities significantly.</div>
+              <div class="feed-time">OWASP Top 10 · Medium Severity</div>
+            </div>
+            <span class="severity-badge sev-medium">MEDIUM</span>
+          </div>
+          <div class="feed-item">
+            <span class="feed-icon">🟡</span>
+            <div class="feed-content">
+              <div class="feed-title">FTP Port 21 — Credentials in Plaintext</div>
+              <div class="feed-desc">FTP transmits usernames and passwords in cleartext. Replace with SFTP (port 22) or FTPS.</div>
+              <div class="feed-time">NIST SP 800-52 · Medium Severity</div>
+            </div>
+            <span class="severity-badge sev-medium">MEDIUM</span>
+          </div>
+          <div class="feed-item">
+            <span class="feed-icon">🟡</span>
+            <div class="feed-content">
+              <div class="feed-title">Telnet Port 23 — No Encryption</div>
+              <div class="feed-desc">Telnet sends all data including credentials in plaintext. Replace immediately with SSH.</div>
+              <div class="feed-time">NIST Advisory · Medium Severity</div>
+            </div>
+            <span class="severity-badge sev-medium">MEDIUM</span>
+          </div>
+          <div class="feed-item">
+            <span class="feed-icon">🟢</span>
+            <div class="feed-content">
+              <div class="feed-title">Missing X-Frame-Options — Clickjacking</div>
+              <div class="feed-desc">Without this header, pages can be embedded in iframes on attacker-controlled sites to hijack clicks.</div>
+              <div class="feed-time">OWASP · Low Severity</div>
+            </div>
+            <span class="severity-badge sev-low">LOW</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PORT RISK REFERENCE -->
+    <div class="panel" style="margin-bottom:20px;">
+      <div class="panel-header">
+        <div class="panel-title">Port Risk Reference</div>
+        <span style="font-size:11px;color:var(--muted)">Common services and their risk level</span>
+      </div>
+      <div class="panel-body">
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;">
+          {% set port_ref = [
+            (21,"FTP","critical","Cleartext credentials"),
+            (22,"SSH","low","Encrypted — keep updated"),
+            (23,"Telnet","critical","No encryption — disable"),
+            (25,"SMTP","medium","Verify relay restrictions"),
+            (80,"HTTP","medium","Redirect to HTTPS"),
+            (135,"RPC","high","Windows exploit vector"),
+            (139,"NetBIOS","high","Legacy — usually disable"),
+            (443,"HTTPS","low","Encrypted — check cert"),
+            (445,"SMB","critical","Ransomware target"),
+            (3306,"MySQL","high","Never expose publicly"),
+            (3389,"RDP","critical","Restrict to VPN only"),
+            (5900,"VNC","high","Use encrypted alternative")
+          ] %}
+          {% for port, name, sev, note in port_ref %}
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+              <span style="font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--text)">:{{ port }} {{ name }}</span>
+              <span class="severity-badge sev-{{ sev }}">{{ sev|upper }}</span>
+            </div>
+            <div style="font-size:11px;color:var(--muted);">{{ note }}</div>
+            <div class="port-risk-bar" style="background:{% if sev=='critical' %}var(--red){% elif sev=='high' %}var(--orange){% elif sev=='medium' %}var(--yellow){% else %}var(--green){% endif %};width:{% if sev=='critical' %}100%{% elif sev=='high' %}75%{% elif sev=='medium' %}50%{% else %}25%{% endif %}"></div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <!-- RECENT ACTIVITY FROM SCANS -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title"><span class="dot-live"></span> Recent Scan Activity</div>
+      </div>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th><th>Target</th><th>Risk Score</th>
+              <th>Risk Level</th><th>Timestamp</th><th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="recentTable">
+            <tr><td colspan="6" class="empty">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+  <div class="footer">
+    <span>PhantomScan v2.0 — Threat Intelligence</span>
+    <span id="lastRefresh"></span>
+  </div>
+</div>
+</div>
+
+<script>
+function updateClock(){
+  document.getElementById("clock").textContent =
+    new Date().toLocaleString("en-GB",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit",second:"2-digit"});
+}
+setInterval(updateClock,1000); updateClock();
+
+function riskClass(s){ return s<=25?"low":s<=50?"medium":s<=75?"high":"critical"; }
+function riskLabel(s){ return s<=25?"LOW":s<=50?"MED":s<=75?"HIGH":"CRIT"; }
+
+async function loadIntel(){
+  try {
+    const [scanRes, statRes] = await Promise.all([fetch("/api/scans"), fetch("/api/stats")]);
+    const scans = await scanRes.json();
+    const stats = await statRes.json();
+
+    // mini stats
+    document.getElementById("tiTotal").textContent   = stats.total ?? 0;
+    document.getElementById("tiThreats").textContent = (stats.high??0) + (stats.critical??0);
+    if(scans.length){
+      const avg = Math.round(scans.reduce((a,s)=>a+s.risk,0)/scans.length);
+      document.getElementById("tiAvg").textContent = avg + "/100";
+    } else {
+      document.getElementById("tiAvg").textContent = "—";
+    }
+
+    // high risk table
+    const high = scans.filter(s=>s.risk>=50);
+    document.getElementById("highRiskTable").innerHTML = high.length
+      ? high.map(s=>`<tr>
+          <td>${s.target}</td>
+          <td style="font-weight:700;color:${s.risk>75?'var(--red)':s.risk>50?'var(--orange)':'var(--yellow)'}">${s.risk}</td>
+          <td><span class="risk-pill risk-${riskClass(s.risk)}">${riskLabel(s.risk)}</span></td>
+          <td style="color:var(--muted)">${s.time||"—"}</td>
+        </tr>`).join("")
+      : `<tr><td colspan="4" class="empty">No high-risk targets found.</td></tr>`;
+
+    // recent table
+    document.getElementById("recentTable").innerHTML = scans.length
+      ? scans.slice(0,10).map(s=>`<tr>
+          <td class="td-mono" style="color:var(--muted)">#${s.id}</td>
+          <td class="td-mono">${s.target}</td>
+          <td style="font-family:var(--font-mono);font-weight:700">${s.risk}</td>
+          <td><span class="risk-pill risk-${riskClass(s.risk)}">${riskLabel(s.risk)}</span></td>
+          <td style="color:var(--muted);font-family:var(--font-mono);font-size:11px">${s.time||"—"}</td>
+          <td><a href="/report/${s.id}" style="color:var(--accent);font-size:11px">↓ PDF</a></td>
+        </tr>`).join("")
+      : `<tr><td colspan="6" class="empty">No scans yet. <a href="/" style="color:var(--accent)">Run a scan.</a></td></tr>`;
+
+    document.getElementById("lastRefresh").textContent = "Updated: "+new Date().toLocaleTimeString();
+  } catch(e){ console.error("Intel load error:",e); }
+}
+
+loadIntel();
+setInterval(loadIntel, 30000);
+</script>
+</body>
+</html>

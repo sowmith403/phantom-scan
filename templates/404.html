@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PhantomScan — 404 Not Found</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+body { display:flex; align-items:center; justify-content:center; min-height:100vh; }
+body::before {
+  content:''; position:fixed; inset:0;
+  background-image:
+    linear-gradient(rgba(0,200,255,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,200,255,0.03) 1px, transparent 1px);
+  background-size:40px 40px; pointer-events:none;
+}
+.err-wrap { text-align:center; animation:fadeIn 0.4s ease; }
+.err-code {
+  font-size:96px; font-weight:700; font-family:var(--font-mono);
+  color:var(--border); line-height:1; margin-bottom:8px;
+  text-shadow:0 0 40px rgba(0,200,255,0.1);
+}
+.err-title { font-size:20px; font-weight:600; color:var(--text); margin-bottom:8px; }
+.err-desc  { font-size:13px; color:var(--muted); margin-bottom:32px; }
+.err-actions { display:flex; gap:12px; justify-content:center; }
+</style>
+</head>
+<body>
+<div class="err-wrap">
+  <div class="err-code">404</div>
+  <div class="err-title">Page Not Found</div>
+  <div class="err-desc">The page you're looking for doesn't exist or has been moved.</div>
+  <div class="err-actions">
+    <a href="/dashboard" class="btn btn-accent">▦ Dashboard</a>
+    <a href="/" class="btn btn-ghost">◎ Scan Center</a>
+  </div>
+</div>
+</body>
+</html>
