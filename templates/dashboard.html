@@ -118,10 +118,7 @@ tbody td { padding:10px 14px; vertical-align:middle; }
 <body>
 <div class="layout">
 
-
 <!-- SIDEBAR -->
-<div class="menu-overlay" id="menuOverlay" onclick="closeMenu()"></div>
-
 <aside class="sidebar">
   <div class="sidebar-logo">
     <div class="wordmark">⬡ PhantomScan</div>
@@ -147,8 +144,7 @@ tbody td { padding:10px 14px; vertical-align:middle; }
 <div class="main">
   <div class="topbar">
     <div class="topbar-left">
-      <button class="menu-toggle" id="menuToggle" aria-label="Open navigation menu" aria-expanded="false" onclick="toggleMenu()"><span></span><span></span><span></span></button>
-<span class="page-title">SOC Dashboard</span>
+      <span class="page-title">SOC Dashboard</span>
       <span class="soc-badge"><span class="status-dot"></span>OPERATIONAL</span>
     </div>
     <div class="topbar-right">
@@ -513,28 +509,6 @@ async function refreshAll(){
 
 refreshAll();
 setInterval(refreshAll, 15000);
-</script>
-<script>
-function toggleMenu(){
-  const sidebar=document.querySelector(".sidebar");
-  const toggle=document.getElementById("menuToggle");
-  const overlay=document.getElementById("menuOverlay");
-  const open=sidebar.classList.toggle("nav-open");
-  toggle.classList.toggle("open",open);
-  toggle.setAttribute("aria-expanded",open ? "true" : "false");
-  overlay.classList.toggle("open",open);
-}
-function closeMenu(){
-  const sidebar=document.querySelector(".sidebar");
-  const toggle=document.getElementById("menuToggle");
-  const overlay=document.getElementById("menuOverlay");
-  sidebar.classList.remove("nav-open");
-  toggle.classList.remove("open");
-  toggle.setAttribute("aria-expanded","false");
-  overlay.classList.remove("open");
-}
-document.querySelectorAll(".nav a").forEach(link => link.addEventListener("click", closeMenu));
-document.addEventListener("keydown", e => { if(e.key === "Escape") closeMenu(); });
 </script>
 </body>
 </html>
