@@ -1,0 +1,5 @@
+Flask>=3.0,<4
+requests>=2.31,<3
+python-nmap>=0.7.1,<1
+reportlab>=4.0,<5
+Werkzeug>=3.0,<4
