@@ -1,62 +1,62 @@
 import os
-import ssl
+import re
 import socket
-import requests
-import nmap
+import ssl
 from datetime import datetime
+from urllib.parse import urlparse
 
-# =====================================================
-# FORCE NMAP PATH (Windows)
-# =====================================================
+import nmap
+import requests
 
+
+# Windows Nmap support. On other platforms, rely on PATH.
 NMAP_PATH = r"C:\Program Files (x86)\Nmap"
-if os.path.exists(NMAP_PATH):
-    os.environ["PATH"] += os.pathsep + NMAP_PATH
+if os.path.isdir(NMAP_PATH):
+    os.environ["PATH"] = os.pathsep.join(
+        [NMAP_PATH, os.environ.get("PATH", "")]
+    )
 
-
-# =====================================================
-# PORT INTELLIGENCE DATABASE
-# =====================================================
 
 PORT_INFO = {
-    20: "FTP Data",
-    21: "FTP",
-    22: "SSH",
-    23: "Telnet",
-    25: "SMTP",
-    53: "DNS",
-    67: "DHCP",
-    68: "DHCP",
-    80: "HTTP",
-    110: "POP3",
-    123: "NTP",
-    135: "RPC",
-    139: "NetBIOS",
-    143: "IMAP",
-    161: "SNMP",
-    389: "LDAP",
-    443: "HTTPS",
-    445: "SMB",
-    587: "SMTP Secure",
-    993: "IMAPS",
-    995: "POP3S",
-    1433: "MS SQL",
-    1521: "Oracle DB",
-    3306: "MySQL",
-    3389: "Remote Desktop",
-    5432: "PostgreSQL",
-    5900: "VNC",
-    8080: "HTTP Alternate"
+    20: "FTP Data", 21: "FTP", 22: "SSH", 23: "Telnet", 25: "SMTP",
+    53: "DNS", 67: "DHCP", 68: "DHCP", 80: "HTTP", 110: "POP3",
+    123: "NTP", 135: "RPC", 139: "NetBIOS", 143: "IMAP", 161: "SNMP",
+    389: "LDAP", 443: "HTTPS", 445: "SMB", 587: "SMTP Secure",
+    993: "IMAPS", 995: "POP3S", 1433: "MS SQL", 1521: "Oracle DB",
+    3306: "MySQL", 3389: "Remote Desktop", 5432: "PostgreSQL",
+    5900: "VNC", 8080: "HTTP Alternate",
 }
 
 HIGH_RISK_PORTS = {21, 23, 135, 139, 445, 3389, 5900}
+HOSTNAME_RE = re.compile(r"^[A-Za-z0-9.-]+$")
 
 
-# =====================================================
-# PORT SCANNING
-# =====================================================
+def normalize_target(target):
+    target = (target or "").strip()
+    if not target:
+        raise ValueError("Please enter a target.")
+
+    # Accept a full URL but reduce it to a host for Nmap/TLS.
+    candidate = target if "://" in target else f"//{target}"
+    parsed = urlparse(candidate)
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("Invalid target. Enter a domain name or IP address.")
+
+    hostname = hostname.strip(".")
+    if not HOSTNAME_RE.fullmatch(hostname):
+        raise ValueError("Invalid target. Enter a valid hostname or IP address.")
+
+    if len(hostname) > 253:
+        raise ValueError("Target hostname is too long.")
+
+    return hostname
+
 
 def scan_ports(target):
+    target = normalize_target(target)
+
     try:
         nm = nmap.PortScanner()
         nm.scan(hosts=target, arguments="-T4 -F")
@@ -65,71 +65,69 @@ def scan_ports(target):
         for host in nm.all_hosts():
             for proto in nm[host].all_protocols():
                 for port in sorted(nm[host][proto].keys()):
-                    if nm[host][proto][port]["state"] == "open":
-                        open_ports.append(port)
-        return open_ports
+                    if nm[host][proto][port].get("state") == "open":
+                        open_ports.append(int(port))
 
-    except Exception as e:
-        print(f"NMAP ERROR: {e}")
-        return []
+        return sorted(set(open_ports))
 
+    except nmap.PortScannerError as exc:
+        raise RuntimeError(
+            "Nmap could not run. Verify that Nmap is installed and available in PATH."
+        ) from exc
+    except Exception as exc:
+        raise RuntimeError(f"Port scan failed: {exc}") from exc
 
-# =====================================================
-# PORT INTELLIGENCE
-# =====================================================
 
 def analyze_ports(open_ports):
     return [
-        f"Port {port} ({PORT_INFO.get(port, 'Unknown Service')})"
+        f"Port {int(port)} ({PORT_INFO.get(int(port), 'Unknown Service')})"
         for port in open_ports
     ]
 
 
-# =====================================================
-# SSL ANALYSIS
-# =====================================================
-
 def ssl_check(target):
+    target = normalize_target(target)
     results = []
+
     try:
         context = ssl.create_default_context()
-        raw_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        raw_sock.settimeout(5)
+        context.check_hostname = True
 
-        with context.wrap_socket(raw_sock, server_hostname=target) as sock:
-            sock.connect((target, 443))
-            cert = sock.getpeercert()
+        with socket.create_connection((target, 443), timeout=5) as raw_sock:
+            with context.wrap_socket(raw_sock, server_hostname=target) as sock:
+                cert = sock.getpeercert()
 
         if not cert:
-            results.append("Certificate Not Found")
-            return results
+            return ["Certificate Not Found"]
 
         issuer = dict(x[0] for x in cert.get("issuer", []))
-        results.append(f"Issuer: {issuer.get('organizationName', 'Unknown')}")
+        organization = issuer.get("organizationName", "Unknown")
+        results.append(f"Issuer: {organization}")
 
         not_after = cert.get("notAfter", "")
-        results.append(f"Valid Until: {not_after}")
-
         if not_after:
-            expiry = datetime.strptime(not_after, "%b %d %H:%M:%S %Y %Z")
-            if expiry < datetime.utcnow():
+            results.append(f"Valid Until: {not_after}")
+            expiry = datetime.strptime(
+                not_after, "%b %d %H:%M:%S %Y %Z"
+            )
+            days_left = (expiry - datetime.utcnow()).days
+
+            if days_left < 0:
                 results.append("WARNING: Certificate is EXPIRED")
-            elif (expiry - datetime.utcnow()).days < 30:
+            elif days_left < 30:
                 results.append("WARNING: Certificate expires in under 30 days")
 
     except ssl.SSLCertVerificationError:
         results.append("SSL Error: Certificate verification failed")
-    except ssl.SSLError as e:
-        results.append(f"SSL Error: {e}")
-    except Exception as e:
-        results.append(f"Connection Error: {e}")
+    except ssl.SSLError as exc:
+        results.append(f"SSL Error: {exc}")
+    except (socket.timeout, TimeoutError):
+        results.append("Connection Error: TLS connection timed out")
+    except (socket.gaierror, ConnectionRefusedError, OSError) as exc:
+        results.append(f"Connection Error: {exc}")
 
     return results
 
-
-# =====================================================
-# SECURITY HEADER ANALYSIS
-# =====================================================
 
 REQUIRED_HEADERS = {
     "Content-Security-Policy": "Missing Content-Security-Policy",
@@ -137,76 +135,77 @@ REQUIRED_HEADERS = {
     "X-Frame-Options": "Missing X-Frame-Options",
     "X-Content-Type-Options": "Missing X-Content-Type-Options",
     "Referrer-Policy": "Missing Referrer-Policy",
-    "Permissions-Policy": "Missing Permissions-Policy"
+    "Permissions-Policy": "Missing Permissions-Policy",
 }
 
 
-def header_check(url):
-    if not url.startswith("http"):
-        url = f"https://{url}"
+def header_check(target):
+    target = normalize_target(target)
+    url = f"https://{target}"
 
     findings = []
     try:
-        response = requests.get(url, timeout=5, allow_redirects=True)
-        headers = response.headers
+        response = requests.get(
+            url,
+            timeout=5,
+            allow_redirects=True,
+            headers={"User-Agent": "PhantomScan/2.1"},
+        )
+
         for header, issue in REQUIRED_HEADERS.items():
-            if header not in headers:
+            if header not in response.headers:
                 findings.append(issue)
+
     except requests.exceptions.SSLError:
         findings.append("Connection Error: SSL verification failed")
+    except requests.exceptions.Timeout:
+        findings.append("Connection Error: HTTP request timed out")
     except requests.exceptions.ConnectionError:
         findings.append("Connection Error: Host unreachable")
-    except Exception as e:
-        findings.append(f"Connection Error: {e}")
+    except requests.exceptions.RequestException as exc:
+        findings.append(f"Connection Error: {exc}")
 
     return findings
 
-
-# =====================================================
-# RISK SCORE CALCULATION
-# =====================================================
 
 def calculate_risk(open_ports, ssl_issues, header_issues):
     score = 0
 
     for port in open_ports:
-        score += 20 if port in HIGH_RISK_PORTS else 5
+        score += 20 if int(port) in HIGH_RISK_PORTS else 5
 
-    # FIX: safely convert each item to string before checking
     ssl_problems = [
-        i for i in ssl_issues
-        if isinstance(i, str) and ("WARNING" in i or "Error" in i or "Not Found" in i)
+        item for item in ssl_issues
+        if isinstance(item, str)
+        and (
+            "WARNING" in item
+            or "Error" in item
+            or "Not Found" in item
+        )
     ]
     score += len(ssl_problems) * 15
-
     score += len(header_issues) * 8
 
-    return min(score, 100)
+    return min(max(score, 0), 100)
 
-
-# =====================================================
-# RISK LEVEL CLASSIFICATION
-# =====================================================
 
 def get_risk_level(score):
     try:
         score = int(float(score))
     except (TypeError, ValueError):
         score = 0
+
     if score <= 25:
         return "LOW"
-    elif score <= 50:
+    if score <= 50:
         return "MEDIUM"
-    elif score <= 75:
+    if score <= 75:
         return "HIGH"
     return "CRITICAL"
 
 
-# =====================================================
-# FULL ANALYSIS WRAPPER
-# =====================================================
-
 def full_scan(target):
+    target = normalize_target(target)
     ports = scan_ports(target)
     ssl_info = ssl_check(target)
     headers = header_check(target)
@@ -220,5 +219,5 @@ def full_scan(target):
         "headers": headers,
         "risk_score": risk_score,
         "risk_level": get_risk_level(risk_score),
-        "scan_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        "scan_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
