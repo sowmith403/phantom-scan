@@ -253,28 +253,33 @@
           <div class="settings-card">
             <div class="settings-card-header">Change Password</div>
             <div class="settings-card-body">
+              <form method="POST" action="/change-password">
               <div class="alert alert-info" style="margin-bottom:16px">
-                ℹ Password changes require a server restart to take effect in this version.
+                Password changes take effect immediately after a successful update.
               </div>
               <div class="form-group">
                 <label class="form-label">Current Password</label>
-                <input type="password" class="form-input" placeholder="Enter current password">
+                <input type="password" name="current_password" class="form-input" placeholder="Enter current password" required>
               </div>
               <div class="form-row">
                 <div class="form-group">
                   <label class="form-label">New Password</label>
-                  <input type="password" class="form-input" placeholder="New password">
+                  <input type="password" name="new_password" class="form-input" placeholder="New password" minlength="8" required>
                 </div>
                 <div class="form-group">
                   <label class="form-label">Confirm Password</label>
-                  <input type="password" class="form-input" placeholder="Confirm new password">
+                  <input type="password" name="confirm_password" class="form-input" placeholder="Confirm new password" minlength="8" required>
                 </div>
               </div>
+              <div class="save-bar">
+                <button type="submit" class="btn btn-accent">Update Password</button>
+              </div>
+              </form>
             </div>
           </div>
           <div class="save-bar">
             <button class="btn btn-ghost">Cancel</button>
-            <button class="btn btn-accent">Update Password</button>
+            <button class="btn btn-accent" type="submit">Update Password</button>
           </div>
         </div>
 
@@ -318,7 +323,9 @@
                   <div class="toggle-label" style="color:var(--red)">Delete All Scan Data</div>
                   <div class="toggle-desc">Permanently removes all scans from the database. This cannot be undone.</div>
                 </div>
-                <button class="btn btn-danger" onclick="confirmDeleteAll()">Delete All</button>
+                <form method="POST" action="/admin/delete-all" onsubmit="return confirmDeleteAll()">
+                  <button class="btn btn-danger" type="submit">Delete All</button>
+                </form>
               </div>
               <div class="toggle-row">
                 <div>
@@ -362,9 +369,7 @@ function saveMsg(id){
 }
 
 function confirmDeleteAll(){
-  if(confirm("DELETE ALL SCAN DATA?\n\nThis will permanently remove all scan records. This cannot be undone.\n\nAre you sure?")){
-    alert("Feature requires backend endpoint /admin/delete-all — not enabled in this build.");
-  }
+  return confirm("DELETE ALL SCAN DATA?\n\nThis permanently removes all scan records and cannot be undone.\n\nAre you sure?");
 }
 
 // Load health + stats
