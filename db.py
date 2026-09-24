@@ -1,15 +1,24 @@
+import os
 import sqlite3
-from werkzeug.security import generate_password_hash, check_password_hash
+from contextlib import contextmanager
+from werkzeug.security import check_password_hash, generate_password_hash
 
-DB = "cyber.db"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB = os.path.join(BASE_DIR, "cyber.db")
 
 
-# =====================================================
-# INIT DATABASE
-# =====================================================
+@contextmanager
+def get_connection():
+    conn = sqlite3.connect(DB)
+    try:
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
+
 
 def init_db():
-    with sqlite3.connect(DB) as conn:
+    with get_connection() as conn:
         c = conn.cursor()
 
         c.execute("""
@@ -32,88 +41,78 @@ def init_db():
         )
         """)
 
-        # Default admin â€” hashed password
         c.execute("""
         INSERT OR IGNORE INTO users (username, password)
         VALUES (?, ?)
         """, ("admin", generate_password_hash("admin123")))
 
-        conn.commit()
-
-
-# =====================================================
-# SAVE SCAN
-# =====================================================
 
 def save_scan(target, ports, ssl, headers, risk, timestamp):
-    with sqlite3.connect(DB) as conn:
-        c = conn.cursor()
-        c.execute("""
-        INSERT INTO scans (target, open_ports, ssl_issues, header_issues, risk_score, timestamp)
+    with get_connection() as conn:
+        conn.execute("""
+        INSERT INTO scans
+        (target, open_ports, ssl_issues, header_issues, risk_score, timestamp)
         VALUES (?, ?, ?, ?, ?, ?)
-        """, (target, ports, ssl, headers, risk, timestamp))
-        conn.commit()
+        """, (target, ports, ssl, headers, int(risk), timestamp))
 
-
-# =====================================================
-# GET ALL SCANS
-# =====================================================
 
 def get_all_scans():
-    with sqlite3.connect(DB) as conn:
-        c = conn.cursor()
-        c.execute("SELECT * FROM scans ORDER BY id DESC")
-        return c.fetchall()
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT * FROM scans ORDER BY id DESC"
+        ).fetchall()
 
-
-# =====================================================
-# GET SINGLE SCAN
-# =====================================================
 
 def get_scan(scan_id):
-    with sqlite3.connect(DB) as conn:
-        c = conn.cursor()
-        c.execute("SELECT * FROM scans WHERE id=?", (scan_id,))
-        return c.fetchone()
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT * FROM scans WHERE id = ?", (scan_id,)
+        ).fetchone()
 
-
-# =====================================================
-# DELETE SCAN
-# =====================================================
 
 def delete_scan(scan_id):
-    with sqlite3.connect(DB) as conn:
-        c = conn.cursor()
-        c.execute("DELETE FROM scans WHERE id=?", (scan_id,))
-        conn.commit()
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "DELETE FROM scans WHERE id = ?", (scan_id,)
+        )
+        return cursor.rowcount
 
 
-# =====================================================
-# VERIFY USER (hashed password check)
-# =====================================================
+def delete_all_scans():
+    with get_connection() as conn:
+        cursor = conn.execute("DELETE FROM scans")
+        return cursor.rowcount
+
 
 def verify_user(username, password):
-    with sqlite3.connect(DB) as conn:
-        c = conn.cursor()
-        c.execute("SELECT * FROM users WHERE username=?", (username,))
-        user = c.fetchone()
+    with get_connection() as conn:
+        user = conn.execute(
+            "SELECT * FROM users WHERE username = ?", (username,)
+        ).fetchone()
+
     if user and check_password_hash(user[2], password):
         return user
     return None
 
 
-# =====================================================
-# GET STATS
-# =====================================================
+def change_password(username, new_password):
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE users SET password = ? WHERE username = ?",
+            (generate_password_hash(new_password), username),
+        )
+
 
 def get_stats():
-    with sqlite3.connect(DB) as conn:
-        c = conn.cursor()
-        c.execute("SELECT risk_score FROM scans")
-        rows = c.fetchall()
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT risk_score FROM scans"
+        ).fetchall()
 
     low = medium = high = critical = 0
+
     for (score,) in rows:
+        score = int(score or 0)
         if score <= 25:
             low += 1
         elif score <= 50:
@@ -128,5 +127,5 @@ def get_stats():
         "low": low,
         "medium": medium,
         "high": high,
-        "critical": critical
+        "critical": critical,
     }
