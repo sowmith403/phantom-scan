@@ -1,7 +1,9 @@
+import json
 import os
 import re
 import socket
 import ssl
+import time
 from datetime import datetime
 from urllib.parse import urlparse
 
@@ -36,11 +38,10 @@ def normalize_target(target):
     if not target:
         raise ValueError("Please enter a target.")
 
-    # Accept a full URL but reduce it to a host for Nmap/TLS.
     candidate = target if "://" in target else f"//{target}"
     parsed = urlparse(candidate)
-
     hostname = parsed.hostname
+
     if not hostname:
         raise ValueError("Invalid target. Enter a domain name or IP address.")
 
@@ -54,21 +55,105 @@ def normalize_target(target):
     return hostname
 
 
-def scan_ports(target):
+def _port_risk(port):
+    port = int(port)
+    if port in HIGH_RISK_PORTS:
+        return "HIGH"
+    if port in {22, 25, 53, 110, 143, 161, 389, 1433, 1521, 3306, 5432}:
+        return "MEDIUM"
+    return "LOW"
+
+
+def _service_recommendation(port):
+    recommendations = {
+        21: "Replace FTP with SFTP/FTPS or restrict access.",
+        22: "Restrict SSH to trusted networks and use key authentication.",
+        23: "Disable Telnet and use SSH instead.",
+        25: "Restrict SMTP exposure and require secure mail transport.",
+        80: "Redirect HTTP to HTTPS where appropriate.",
+        135: "Restrict RPC to trusted networks.",
+        139: "Disable or restrict legacy NetBIOS where possible.",
+        443: "Review TLS configuration and certificate health.",
+        445: "Restrict SMB to trusted networks.",
+        3389: "Restrict RDP to VPN or trusted administrator IPs.",
+        5900: "Restrict VNC and use encrypted remote access.",
+    }
+    return recommendations.get(
+        int(port),
+        "Verify that this service is required and restrict unnecessary exposure.",
+    )
+
+
+def scan_ports(target, include_details=False):
+    """Run one efficient Nmap service scan and optionally return rich port intelligence.
+
+    Uses Nmap's top-100 fast scan with lightweight service detection. This avoids
+    the cost of a full 65,535-port scan while providing service/version details.
+    """
     target = normalize_target(target)
+    started = time.perf_counter()
+
+    arguments = (
+        "-sV --version-light -T4 -F --open "
+        "--max-retries 2 --host-timeout 45s -n"
+    )
 
     try:
         nm = nmap.PortScanner()
-        nm.scan(hosts=target, arguments="-T4 -F")
+        nm.scan(hosts=target, arguments=arguments)
 
         open_ports = []
+        port_details = []
+
         for host in nm.all_hosts():
             for proto in nm[host].all_protocols():
                 for port in sorted(nm[host][proto].keys()):
-                    if nm[host][proto][port].get("state") == "open":
-                        open_ports.append(int(port))
+                    data = nm[host][proto][port]
+                    if data.get("state") != "open":
+                        continue
 
-        return sorted(set(open_ports))
+                    port = int(port)
+                    service = data.get("name") or PORT_INFO.get(port, "Unknown")
+                    product = data.get("product") or ""
+                    version = data.get("version") or ""
+                    extra = data.get("extrainfo") or ""
+                    detected = " ".join(
+                        part for part in (product, version, extra) if part
+                    ).strip()
+
+                    open_ports.append(port)
+                    port_details.append({
+                        "port": port,
+                        "protocol": proto.upper(),
+                        "state": data.get("state", "open").upper(),
+                        "service": service,
+                        "product": product,
+                        "version": version,
+                        "details": extra,
+                        "detected": detected or "Service detected; version not reported",
+                        "risk": _port_risk(port),
+                        "risk_reason": (
+                            "Commonly exposed administrative/legacy service"
+                            if port in HIGH_RISK_PORTS
+                            else "Review service exposure and necessity"
+                        ),
+                        "recommendation": _service_recommendation(port),
+                    })
+
+        duration = round(time.perf_counter() - started, 2)
+        open_ports = sorted(set(open_ports))
+
+        if not include_details:
+            return open_ports
+
+        return open_ports, {
+            "scanner": "Nmap",
+            "profile": "Fast top-100 + lightweight service detection",
+            "arguments": arguments,
+            "duration_seconds": duration,
+            "open_count": len(open_ports),
+            "ports": port_details,
+        }
 
     except nmap.PortScannerError as exc:
         raise RuntimeError(
@@ -149,7 +234,7 @@ def header_check(target):
             url,
             timeout=5,
             allow_redirects=True,
-            headers={"User-Agent": "PhantomScan/2.1"},
+            headers={"User-Agent": "PhantomScan/2.2"},
         )
 
         for header, issue in REQUIRED_HEADERS.items():
@@ -177,11 +262,7 @@ def calculate_risk(open_ports, ssl_issues, header_issues):
     ssl_problems = [
         item for item in ssl_issues
         if isinstance(item, str)
-        and (
-            "WARNING" in item
-            or "Error" in item
-            or "Not Found" in item
-        )
+        and ("WARNING" in item or "Error" in item or "Not Found" in item)
     ]
     score += len(ssl_problems) * 15
     score += len(header_issues) * 8
@@ -206,7 +287,7 @@ def get_risk_level(score):
 
 def full_scan(target):
     target = normalize_target(target)
-    ports = scan_ports(target)
+    ports, port_intelligence = scan_ports(target, include_details=True)
     ssl_info = ssl_check(target)
     headers = header_check(target)
     risk_score = calculate_risk(ports, ssl_info, headers)
@@ -214,7 +295,7 @@ def full_scan(target):
     return {
         "target": target,
         "ports": ports,
-        "port_intelligence": analyze_ports(ports),
+        "port_intelligence": port_intelligence,
         "ssl": ssl_info,
         "headers": headers,
         "risk_score": risk_score,
