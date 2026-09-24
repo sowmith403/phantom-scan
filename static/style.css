@@ -215,14 +215,14 @@ tbody td { padding:10px 14px; vertical-align:middle; }
 }
 .badge-blue { background:rgba(0,200,255,0.10); color:var(--accent); border:1px solid rgba(0,200,255,0.2); }
 
-/* ── MOBILE / COLLAPSIBLE NAVIGATION ── */
+
+/* ── HAMBURGER NAVIGATION ── */
 .menu-toggle {
-  display: none;
-  position: fixed;
-  top: 9px;
-  left: 12px;
+  display: inline-flex !important;
   width: 38px;
   height: 34px;
+  flex: 0 0 38px;
+  padding: 0;
   border: 1px solid var(--border);
   border-radius: 5px;
   background: var(--panel);
@@ -231,43 +231,36 @@ tbody td { padding:10px 14px; vertical-align:middle; }
   justify-content: center;
   flex-direction: column;
   gap: 4px;
-  z-index: 1101;
+  cursor: pointer;
+  z-index: 1102;
 }
 .menu-toggle span { width: 17px; height: 2px; background: currentColor; border-radius: 2px; transition: transform .2s, opacity .2s; }
 .menu-toggle.open span:nth-child(1) { transform: translateY(6px) rotate(45deg); }
 .menu-toggle.open span:nth-child(2) { opacity: 0; }
 .menu-toggle.open span:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
-.menu-overlay { display: none; }
+
+.menu-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.55);
+  z-index: 1099;
+}
+.menu-overlay.open { display: block; }
+
+.sidebar {
+  transform: translateX(-100%);
+  transition: transform .22s ease;
+  z-index: 1100;
+  box-shadow: 10px 0 30px rgba(0,0,0,.35);
+}
+.sidebar.nav-open { transform: translateX(0); }
+.main { margin-left: 0; }
+
+.topbar-left { display:flex; align-items:center; gap:12px; }
+.topbar { padding-left:16px; }
 
 @media (max-width: 900px) {
-  .menu-toggle { display: inline-flex; }
-  .sidebar {
-    transform: translateX(-100%);
-    transition: transform .22s ease;
-    box-shadow: 10px 0 30px rgba(0,0,0,.35);
-  }
-  .sidebar.nav-open { transform: translateX(0); }
-  .main { margin-left: 0; }
-  .menu-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,.55);
-    z-index: 99;
-  }
-  .menu-overlay.open { display: block; }
-  .topbar { padding: 0 16px; }
-  .topbar-left { gap: 10px; }
-  .topbar-right { gap: 7px; }
   .content { padding: 18px 16px; }
-}
-
-@media (min-width: 901px) {
-  .menu-toggle { display: inline-flex; }
-  .sidebar {
-    transform: translateX(-100%);
-    transition: transform .22s ease;
-  }
-  .sidebar.nav-open { transform: translateX(0); }
-  .main { margin-left: 0; }
-  .menu-overlay.open { display: block; }
+  .topbar { padding-right:16px; }
 }
