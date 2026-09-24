@@ -1,4 +1,5 @@
 import ast
+import json
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -158,8 +159,9 @@ def build_recommendations(ports, ssl_issues, header_issues):
 
 def generate_report(scan_data, destination):
     # DB schema: id, target, open_ports, ssl_issues, header_issues,
-    # risk_score, timestamp.
-    _, target, ports_raw, ssl_raw, headers_raw, risk_score, timestamp = scan_data
+    # risk_score, timestamp, port_details.
+    _, target, ports_raw, ssl_raw, headers_raw, risk_score, timestamp = scan_data[:7]
+    port_details_raw = scan_data[7] if len(scan_data) > 7 else ""
 
     ports = []
     for item in _safe_list(ports_raw):
@@ -170,6 +172,12 @@ def generate_report(scan_data, destination):
 
     ssl_issues = _safe_list(ssl_raw)
     header_issues = _safe_list(headers_raw)
+    try:
+        port_details = json.loads(port_details_raw) if port_details_raw else {}
+    except (ValueError, TypeError):
+        port_details = {}
+    detailed_ports = port_details.get("ports", []) if isinstance(port_details, dict) else []
+    scan_duration = port_details.get("duration_seconds") if isinstance(port_details, dict) else None
     risk_score = int(risk_score or 0)
     risk_level = get_risk_level(risk_score)
 
@@ -225,6 +233,37 @@ def generate_report(scan_data, destination):
     else:
         c.setFont("Helvetica", 11)
         c.drawString(MARGIN + 10, y, "No open ports detected.")
+        y -= LINE_HEIGHT
+
+    y -= 12
+    y = check_page(c, y)
+    y = draw_section_header(c, "Port Scan Intelligence", y)
+
+    c.setFont("Helvetica", 10)
+    profile = port_details.get("profile", "Fast service scan") if isinstance(port_details, dict) else "Fast service scan"
+    duration_text = f"{scan_duration}s" if scan_duration is not None else "N/A"
+    c.drawString(MARGIN + 10, y, f"Profile: {profile}   |   Scan duration: {duration_text}")
+    y -= LINE_HEIGHT
+
+    if detailed_ports:
+        for item in detailed_ports:
+            y = check_page(c, y)
+            port = item.get("port", "?")
+            protocol = item.get("protocol", "TCP")
+            service = item.get("service", "Unknown")
+            detected = item.get("detected", "Not reported")
+            risk = item.get("risk", "LOW")
+            y = draw_wrapped_text(
+                c,
+                f"Port {port}/{protocol} - {service} - {detected} - Risk: {risk}",
+                MARGIN + 10,
+                y,
+                WIDTH - 2 * MARGIN - 20,
+                size=10,
+            )
+    else:
+        c.setFont("Helvetica", 10)
+        c.drawString(MARGIN + 10, y, "Detailed service information was not stored for this scan.")
         y -= LINE_HEIGHT
 
     y -= 12
