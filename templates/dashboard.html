@@ -89,6 +89,30 @@ tbody tr:hover { background:rgba(0,200,255,0.03); }
 tbody td { padding:10px 14px; vertical-align:middle; }
 .td-mono { font-family:var(--font-mono); font-size:11px; }
 .td-trunc { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:150px; }
+.port-summary { display:flex; align-items:center; gap:6px; white-space:nowrap; }
+.port-count { font-family:var(--font-mono); font-size:11px; color:var(--text); }
+.port-meta { font-size:10px; color:var(--muted); }
+.port-details-btn { color:var(--accent); border:1px solid rgba(0,200,255,0.25); background:rgba(0,200,255,0.05); padding:3px 7px; border-radius:3px; font-size:10px; cursor:pointer; font-family:inherit; }
+.modal-backdrop { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.72); z-index:1000; padding:40px 20px; overflow:auto; }
+.modal-backdrop.open { display:block; }
+.port-modal { max-width:980px; margin:0 auto; background:var(--panel); border:1px solid var(--border); border-radius:10px; box-shadow:0 20px 60px rgba(0,0,0,.45); }
+.port-modal-header { display:flex; justify-content:space-between; align-items:center; padding:18px 20px; border-bottom:1px solid var(--border); }
+.port-modal-title { font-size:14px; font-weight:700; color:var(--text); }
+.port-modal-subtitle { font-size:10px; color:var(--muted); margin-top:4px; }
+.port-modal-close { background:none; border:1px solid var(--border); color:var(--muted); border-radius:4px; padding:5px 9px; cursor:pointer; }
+.port-modal-body { padding:20px; }
+.port-metrics { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:18px; }
+.port-metric { background:var(--surface); border:1px solid var(--border); border-radius:7px; padding:12px; }
+.port-metric-label { font-size:9px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); }
+.port-metric-value { margin-top:5px; font-family:var(--font-mono); font-size:16px; color:var(--text); }
+.port-table { width:100%; border-collapse:collapse; font-size:11px; }
+.port-table th { text-align:left; padding:9px; color:var(--muted); background:var(--surface); border-bottom:1px solid var(--border); font-size:9px; text-transform:uppercase; }
+.port-table td { padding:9px; border-bottom:1px solid rgba(26,47,80,.5); vertical-align:top; }
+.port-risk { font-size:9px; font-weight:700; padding:3px 6px; border-radius:3px; }
+.port-high { color:var(--red); background:rgba(255,23,68,.08); }
+.port-medium { color:#ffd600; background:rgba(255,214,0,.08); }
+.port-low { color:var(--green); background:rgba(0,230,118,.08); }
+@media(max-width:700px){ .port-metrics{grid-template-columns:repeat(2,1fr)} .port-table{min-width:760px} }
 </style>
 </head>
 <body>
@@ -237,7 +261,24 @@ tbody td { padding:10px 14px; vertical-align:middle; }
     <span id="lastRefresh"></span>
   </div>
 </div>
-</div><!-- /layout -->
+</div><!-- /layout --><div class="modal-backdrop" id="portModal" onclick="closePortDetails(event)">
+  <div class="port-modal" onclick="event.stopPropagation()">
+    <div class="port-modal-header">
+      <div><div class="port-modal-title" id="portModalTitle">Port Intelligence</div><div class="port-modal-subtitle" id="portModalSubtitle">Detailed Nmap results</div></div>
+      <button class="port-modal-close" onclick="closePortDetails()">Close</button>
+    </div>
+    <div class="port-modal-body">
+      <div class="port-metrics">
+        <div class="port-metric"><div class="port-metric-label">Open Ports</div><div class="port-metric-value" id="portMetricCount">0</div></div>
+        <div class="port-metric"><div class="port-metric-label">Scan Duration</div><div class="port-metric-value" id="portMetricTime">—</div></div>
+        <div class="port-metric"><div class="port-metric-label">High Risk Ports</div><div class="port-metric-value" id="portMetricHigh">0</div></div>
+        <div class="port-metric"><div class="port-metric-label">Scan Profile</div><div class="port-metric-value" id="portMetricProfile" style="font-size:11px">—</div></div>
+      </div>
+      <div style="overflow:auto"><table class="port-table"><thead><tr><th>Port</th><th>Protocol</th><th>Service</th><th>Version / Product</th><th>Risk</th><th>Recommendation</th></tr></thead><tbody id="portModalRows"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody></table></div>
+    </div>
+  </div>
+</div>
+
 
 <script>
 "use strict";
@@ -268,18 +309,24 @@ function riskLabel(score){
   if(score <= 75) return "HIGH";
   return "CRIT";
 }
+function parseList(raw){
+  if(!raw || raw === "[]" || raw === "") return [];
+  try { return JSON.parse(String(raw).replace(/'/g,'"')); }
+  catch { return String(raw).replace(/[\[\]']/g,"").split(",").map(v=>v.trim()).filter(Boolean); }
+}
 function shortList(raw){
-  if(!raw || raw === "[]" || raw === "") return "<span style='color:var(--muted)'>None</span>";
-  try {
-    const arr = JSON.parse(raw.replace(/'/g,'"'));
-    if(!arr.length) return "<span style='color:var(--muted)'>None</span>";
-    const preview = arr.slice(0,3).join(", ");
-    return arr.length > 3 ? preview + ` +${arr.length-3}` : preview;
-  } catch {
-    const s = String(raw).replace(/[\[\]']/g,"").trim();
-    if(!s) return "<span style='color:var(--muted)'>None</span>";
-    return s.length > 55 ? s.slice(0,52)+"…" : s;
-  }
+  const arr = parseList(raw);
+  if(!arr.length) return "<span style='color:var(--muted)'>None</span>";
+  const preview = arr.slice(0,3).join(", ");
+  return arr.length > 3 ? preview + ` +${arr.length-3}` : preview;
+}
+function portCount(raw){ return parseList(raw).length; }
+function portPreview(details){
+  const ports = details && Array.isArray(details.ports) ? details.ports : [];
+  if(!ports.length) return "No service details";
+  return ports.slice(0,2).map(p=>`Port ${p.port} ${p.service||"unknown"}`).join(" · ") + (ports.length>2 ? " · …" : "");
+}
+
 }
 
 /* ── Load stats ── */
@@ -319,7 +366,7 @@ async function loadScans(){
         return `<tr>
           <td class="td-mono" style="color:var(--muted)">#${s.id}</td>
           <td class="td-mono td-trunc" title="${s.target}">${s.target}</td>
-          <td class="td-trunc" title="${s.ports}">${shortList(s.ports)}</td>
+          <td><div class="port-summary"><span class="port-count">${portCount(s.ports)} open</span><button class="port-details-btn" onclick="showPortDetails(${s.id})">Details</button></div><div class="port-meta">${portPreview(s.port_details)}</div></td>
           <td class="td-trunc" title="${s.ssl}">${shortList(s.ssl)}</td>
           <td class="td-trunc" title="${s.headers}">${shortList(s.headers)}</td>
           <td><span class="risk-pill risk-${rc}">${rl} ${s.risk}</span></td>
@@ -409,6 +456,40 @@ function drawChart(labels, scores){
     }
   });
 }
+
+async function showPortDetails(id){
+  const modal = document.getElementById("portModal");
+  const rows = document.getElementById("portModalRows");
+  rows.innerHTML = `<tr><td colspan="6" class="empty">Loading port intelligence…</td></tr>`;
+  modal.classList.add("open");
+  try {
+    const res = await fetch(`/api/scan/${id}`);
+    if(!res.ok) throw new Error("Unable to load scan");
+    const data = await res.json();
+    const intel = data.port_intelligence || {};
+    const ports = Array.isArray(intel.ports) ? intel.ports : [];
+    document.getElementById("portModalTitle").textContent = `Port Intelligence — ${data.target}`;
+    document.getElementById("portModalSubtitle").textContent = intel.scanner ? `${intel.scanner} · ${intel.profile||"service scan"}` : "Detailed port scan results";
+    document.getElementById("portMetricCount").textContent = ports.length;
+    document.getElementById("portMetricTime").textContent = intel.duration_seconds != null ? `${intel.duration_seconds}s` : "—";
+    document.getElementById("portMetricHigh").textContent = ports.filter(p=>p.risk==="HIGH").length;
+    document.getElementById("portMetricProfile").textContent = intel.profile || "—";
+    rows.innerHTML = ports.length ? ports.map(p=>{
+      const risk = String(p.risk||"LOW").toLowerCase();
+      const detected = p.detected || [p.product,p.version,p.details].filter(Boolean).join(" ") || "Not reported";
+      return `<tr><td class="td-mono"><strong>${p.port}</strong></td><td>${p.protocol||"TCP"}</td><td><strong>${p.service||"Unknown"}</strong></td><td>${detected}</td><td><span class="port-risk port-${risk}">${p.risk||"LOW"}</span></td><td>${p.recommendation||"Review service exposure."}</td></tr>`;
+    }).join("") : `<tr><td colspan="6" class="empty">No open ports detected.</td></tr>`;
+  } catch(e) {
+    rows.innerHTML = `<tr><td colspan="6" class="empty">Port intelligence unavailable for this scan.</td></tr>`;
+  }
+}
+function closePortDetails(event){
+  if(event && event.target !== document.getElementById("portModal")) return;
+  document.getElementById("portModal").classList.remove("open");
+}
+document.addEventListener("keydown", e=>{
+  if(e.key==="Escape") document.getElementById("portModal").classList.remove("open");
+});
 
 /* ── Delete ── */
 async function deleteScan(id, target){
