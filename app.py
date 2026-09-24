@@ -1,6 +1,7 @@
 import ast
 import csv
 import io
+import json
 import os
 import time
 from functools import wraps
@@ -41,7 +42,6 @@ app.config["SESSION_COOKIE_SECURE"] = os.environ.get("PHANTOMSCAN_COOKIE_SECURE"
 init_db()
 
 
-# ── AUTH DECORATOR ────────────────────────────────
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -52,7 +52,6 @@ def login_required(f):
     return decorated
 
 
-# ── SECURITY HEADERS ─────────────────────────────
 @app.after_request
 def add_security_headers(response):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
@@ -61,14 +60,12 @@ def add_security_headers(response):
     return response
 
 
-# ── HOME ──────────────────────────────────────────
 @app.route("/")
 @login_required
 def home():
     return render_template("index.html")
 
 
-# ── LOGIN / LOGOUT ────────────────────────────────
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
@@ -96,7 +93,6 @@ def logout():
     return redirect("/login")
 
 
-# ── SCAN ──────────────────────────────────────────
 @app.route("/scan", methods=["POST"])
 @login_required
 def scan():
@@ -109,7 +105,7 @@ def scan():
         return redirect("/")
 
     try:
-        ports = scan_ports(target)
+        ports, port_intelligence = scan_ports(target, include_details=True)
         ssl_findings = ssl_check(target)
         header_findings = header_check(target)
         risk_score = calculate_risk(ports, ssl_findings, header_findings)
@@ -121,8 +117,12 @@ def scan():
             str(header_findings),
             risk_score,
             time.strftime("%Y-%m-%d %H:%M:%S"),
+            json.dumps(port_intelligence),
         )
-        flash(f"Scan completed for {target}.", "success")
+        flash(
+            f"Scan completed for {target}: {len(ports)} open port(s) detected.",
+            "success",
+        )
     except Exception as exc:
         print(f"SCAN ERROR: {type(exc).__name__}: {exc}")
         flash(
@@ -133,14 +133,12 @@ def scan():
     return redirect("/dashboard")
 
 
-# ── DASHBOARD ─────────────────────────────────────
 @app.route("/dashboard")
 @login_required
 def dashboard():
     return render_template("dashboard.html")
 
 
-# ── REPORTS PAGE ──────────────────────────────────
 @app.route("/reports")
 @login_required
 def reports():
@@ -179,11 +177,17 @@ def reports():
         except (ValueError, SyntaxError):
             hdr_list = [row[4]] if row[4] else []
 
+        try:
+            port_details = json.loads(row[7]) if len(row) > 7 and row[7] else {}
+        except (ValueError, TypeError):
+            port_details = {}
+
         enriched.append(
             {
                 "id": row[0],
                 "target": row[1],
                 "ports": ports,
+                "port_details": port_details,
                 "ssl": ssl_list,
                 "headers": hdr_list,
                 "score": score,
@@ -196,28 +200,24 @@ def reports():
     return render_template("reports.html", scans=enriched, stats=get_stats())
 
 
-# ── THREAT INTEL ──────────────────────────────────
 @app.route("/threat-intel")
 @login_required
 def threat_intel():
     return render_template("threat_intel.html")
 
 
-# ── SETTINGS ──────────────────────────────────────
 @app.route("/settings")
 @login_required
 def settings():
     return render_template("settings.html")
 
 
-# ── HISTORY ───────────────────────────────────────
 @app.route("/history")
 @login_required
 def history():
     return render_template("history.html", scans=get_all_scans())
 
 
-# ── DELETE SCAN ───────────────────────────────────
 @app.route("/delete/<int:scan_id>", methods=["POST"])
 @login_required
 def delete(scan_id):
@@ -230,7 +230,6 @@ def delete(scan_id):
     return redirect("/dashboard")
 
 
-# ── DELETE ALL SCANS ──────────────────────────────
 @app.route("/admin/delete-all", methods=["POST"])
 @login_required
 def delete_all():
@@ -239,7 +238,6 @@ def delete_all():
     return redirect("/settings")
 
 
-# ── CHANGE PASSWORD ───────────────────────────────
 @app.route("/change-password", methods=["POST"])
 @login_required
 def update_password():
@@ -270,7 +268,6 @@ def update_password():
     return redirect("/login")
 
 
-# ── API: /api/scans ───────────────────────────────
 @app.route("/api/scans")
 @login_required
 def api_scans():
@@ -279,11 +276,17 @@ def api_scans():
 
     for row in rows:
         score = int(row[5] or 0)
+        try:
+            port_details = json.loads(row[7]) if len(row) > 7 and row[7] else {}
+        except (ValueError, TypeError):
+            port_details = {}
+
         result.append(
             {
                 "id": row[0],
                 "target": row[1],
                 "ports": row[2],
+                "port_details": port_details,
                 "ssl": row[3],
                 "headers": row[4],
                 "risk": score,
@@ -295,21 +298,18 @@ def api_scans():
     return jsonify(result)
 
 
-# ── API: /api/stats ───────────────────────────────
 @app.route("/api/stats")
 @login_required
 def api_stats():
     return jsonify(get_stats())
 
 
-# ── API: /api/results (legacy alias) ──────────────
 @app.route("/api/results")
 @login_required
 def api_results():
     return api_scans()
 
 
-# ── API: single scan detail ───────────────────────
 @app.route("/api/scan/<int:scan_id>")
 @login_required
 def scan_details(scan_id):
@@ -324,6 +324,11 @@ def scan_details(scan_id):
     except (ValueError, SyntaxError):
         ports = []
 
+    try:
+        port_details = json.loads(row[7]) if len(row) > 7 and row[7] else {}
+    except (ValueError, TypeError):
+        port_details = {}
+
     score = int(row[5] or 0)
     return jsonify(
         {
@@ -331,6 +336,7 @@ def scan_details(scan_id):
             "target": row[1],
             "ports": ports,
             "services": analyze_ports(ports),
+            "port_intelligence": port_details,
             "ssl": row[3] or "",
             "headers": row[4] or "",
             "risk_score": score,
@@ -340,7 +346,6 @@ def scan_details(scan_id):
     )
 
 
-# ── API: live logs ────────────────────────────────
 @app.route("/api/logs")
 @login_required
 def logs():
@@ -353,7 +358,6 @@ def logs():
     )
 
 
-# ── PDF REPORT DOWNLOAD ───────────────────────────
 @app.route("/report/<int:scan_id>")
 @login_required
 def report(scan_id):
@@ -373,7 +377,6 @@ def report(scan_id):
     )
 
 
-# ── EXPORT CSV ─────────────────────────────────────
 @app.route("/export")
 @login_required
 def export_csv():
@@ -385,13 +388,27 @@ def export_csv():
             "ID",
             "Target",
             "Open Ports",
+            "Port Intelligence",
             "SSL Findings",
             "Header Findings",
             "Risk Score",
             "Timestamp",
         ]
     )
-    writer.writerows(rows)
+
+    for row in rows:
+        port_details = row[7] if len(row) > 7 else ""
+        writer.writerow([
+            row[0],
+            row[1],
+            row[2],
+            port_details,
+            row[3],
+            row[4],
+            row[5],
+            row[6],
+        ])
+
     buffer = io.BytesIO(output.getvalue().encode("utf-8"))
     buffer.seek(0)
 
@@ -404,7 +421,6 @@ def export_csv():
     )
 
 
-# ── HEALTH / VERSION ──────────────────────────────
 @app.route("/health")
 def health():
     return jsonify({"status": "online", "application": "PhantomScan"})
@@ -412,10 +428,9 @@ def health():
 
 @app.route("/version")
 def version():
-    return jsonify({"name": "PhantomScan", "version": "2.1.0"})
+    return jsonify({"name": "PhantomScan", "version": "2.2.0"})
 
 
-# ── ERROR HANDLERS ────────────────────────────────
 @app.errorhandler(404)
 def not_found(error):
     return render_template("404.html"), 404
@@ -426,7 +441,6 @@ def internal_error(error):
     return jsonify({"error": "Internal server error"}), 500
 
 
-# ── MAIN ──────────────────────────────────────────
 if __name__ == "__main__":
     debug = os.environ.get("FLASK_DEBUG", "0") == "1"
     print("=" * 50)
