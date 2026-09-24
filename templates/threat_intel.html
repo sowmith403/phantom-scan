@@ -49,8 +49,6 @@
 <body>
 <div class="layout">
 
-<div class="menu-overlay" id="menuOverlay"></div>
-
 <aside class="sidebar">
   <div class="sidebar-logo">
     <div class="wordmark">⬡ PhantomScan</div>
@@ -75,7 +73,6 @@
 <div class="main">
   <div class="topbar">
     <div class="topbar-left">
-      <button type="button" class="menu-toggle" id="menuToggle" aria-label="Open navigation menu" aria-expanded="false"><span></span><span></span><span></span></button>
       <span class="page-title">Threat Intelligence</span>
       <span class="soc-badge"><span class="status-dot"></span>LIVE FEED</span>
     </div>
@@ -316,26 +313,6 @@ async function loadIntel(){
 
 loadIntel();
 setInterval(loadIntel, 30000);
-</script>
-<script>
-(function(){
-  const toggle=document.getElementById('menuToggle');
-  const sidebar=document.querySelector('.sidebar');
-  const overlay=document.getElementById('menuOverlay');
-  if(!toggle||!sidebar||!overlay)return;
-  function setMenu(open){
-    sidebar.classList.toggle('nav-open',open);
-    overlay.classList.toggle('open',open);
-    toggle.classList.toggle('open',open);
-    toggle.setAttribute('aria-expanded',open?'true':'false');
-  }
-  window.toggleMenu=function(){setMenu(!sidebar.classList.contains('nav-open'));};
-  window.closeMenu=function(){setMenu(false);};
-  toggle.addEventListener('click',window.toggleMenu);
-  overlay.addEventListener('click',window.closeMenu);
-  document.querySelectorAll('.nav a').forEach(a=>a.addEventListener('click',window.closeMenu));
-  document.addEventListener('keydown',e=>{if(e.key==='Escape')window.closeMenu();});
-})();
 </script>
 </body>
 </html>
