@@ -78,6 +78,8 @@
 </head>
 <body>
 <div class="layout">
+<button class="menu-toggle" id="menuToggle" aria-label="Open navigation menu" aria-expanded="false" onclick="toggleMenu()"><span></span><span></span><span></span></button>
+<div class="menu-overlay" id="menuOverlay" onclick="closeMenu()"></div>
 
 <aside class="sidebar">
   <div class="sidebar-logo">
@@ -385,6 +387,28 @@ async function loadSystemInfo(){
   } catch(e){ console.error(e); }
 }
 loadSystemInfo();
+</script>
+<script>
+function toggleMenu(){
+  const sidebar=document.querySelector(".sidebar");
+  const toggle=document.getElementById("menuToggle");
+  const overlay=document.getElementById("menuOverlay");
+  const open=sidebar.classList.toggle("nav-open");
+  toggle.classList.toggle("open",open);
+  toggle.setAttribute("aria-expanded",open ? "true" : "false");
+  overlay.classList.toggle("open",open);
+}
+function closeMenu(){
+  const sidebar=document.querySelector(".sidebar");
+  const toggle=document.getElementById("menuToggle");
+  const overlay=document.getElementById("menuOverlay");
+  sidebar.classList.remove("nav-open");
+  toggle.classList.remove("open");
+  toggle.setAttribute("aria-expanded","false");
+  overlay.classList.remove("open");
+}
+document.querySelectorAll(".nav a").forEach(link => link.addEventListener("click", closeMenu));
+document.addEventListener("keydown", e => { if(e.key === "Escape") closeMenu(); });
 </script>
 </body>
 </html>
