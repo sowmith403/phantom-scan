@@ -1,7 +1,9 @@
 import os
 import sqlite3
 from contextlib import contextmanager
+
 from werkzeug.security import check_password_hash, generate_password_hash
+
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB = os.path.join(BASE_DIR, "cyber.db")
@@ -29,9 +31,17 @@ def init_db():
             ssl_issues TEXT,
             header_issues TEXT,
             risk_score INTEGER,
-            timestamp TEXT
+            timestamp TEXT,
+            port_details TEXT
         )
         """)
+
+        # Backward-compatible migration for existing cyber.db files.
+        columns = {
+            row[1] for row in c.execute("PRAGMA table_info(scans)").fetchall()
+        }
+        if "port_details" not in columns:
+            c.execute("ALTER TABLE scans ADD COLUMN port_details TEXT")
 
         c.execute("""
         CREATE TABLE IF NOT EXISTS users (
@@ -47,13 +57,21 @@ def init_db():
         """, ("admin", generate_password_hash("admin123")))
 
 
-def save_scan(target, ports, ssl, headers, risk, timestamp):
+def save_scan(target, ports, ssl, headers, risk, timestamp, port_details=""):
     with get_connection() as conn:
         conn.execute("""
         INSERT INTO scans
-        (target, open_ports, ssl_issues, header_issues, risk_score, timestamp)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """, (target, ports, ssl, headers, int(risk), timestamp))
+        (target, open_ports, ssl_issues, header_issues, risk_score, timestamp, port_details)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            target,
+            ports,
+            ssl,
+            headers,
+            int(risk),
+            timestamp,
+            port_details,
+        ))
 
 
 def get_all_scans():
