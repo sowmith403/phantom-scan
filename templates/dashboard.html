@@ -117,8 +117,7 @@ tbody td { padding:10px 14px; vertical-align:middle; }
 </head>
 <body>
 <div class="layout">
-<button class="menu-toggle" id="menuToggle" aria-label="Open navigation menu" aria-expanded="false" onclick="toggleMenu()"><span></span><span></span><span></span></button>
-<div class="menu-overlay" id="menuOverlay" onclick="closeMenu()"></div>
+
 
 <!-- SIDEBAR -->
 <aside class="sidebar">
@@ -146,7 +145,8 @@ tbody td { padding:10px 14px; vertical-align:middle; }
 <div class="main">
   <div class="topbar">
     <div class="topbar-left">
-      <span class="page-title">SOC Dashboard</span>
+      <button class="menu-toggle" id="menuToggle" aria-label="Open navigation menu" aria-expanded="false" onclick="toggleMenu()"><span></span><span></span><span></span></button>
+<span class="page-title">SOC Dashboard</span>
       <span class="soc-badge"><span class="status-dot"></span>OPERATIONAL</span>
     </div>
     <div class="topbar-right">
